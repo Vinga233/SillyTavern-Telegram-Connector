@@ -265,7 +265,9 @@ module.exports = function setupCommands(bot) {
                 if (args.length === 0) {
                     await bot.sendMessage(chatId, '请指定角色名称，用法: /switchchar <名称>').catch(() => {});
                 } else {
+                    const scName = args.join(' ');
                     stService.executeCommand('switchchar', args, chatId);
+                    sessionStore.setCurrentCharacter(chatId, scName);
                 }
                 break;
 
@@ -320,3 +322,4 @@ async function handleSystemCommand(bot, command, chatId) {
     stService.client.commandToExecuteOnClose = { command, chatId };
     stService.send({ type: 'system_command', command: 'reload_ui_only', chatId });
 }
+
