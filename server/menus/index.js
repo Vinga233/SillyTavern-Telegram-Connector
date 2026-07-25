@@ -68,9 +68,9 @@ async function showCharacterMenu(bot, chatId, messageId) {
 
     const keyboard = {
         inline_keyboard: [
-            [{ text: '📚 查看角色列表', callback_data: 'char:list' }],
-            [{ text: '🔄 切换角色', callback_data: 'char:switch' }],
-            [{ text: '⭐ 当前角色', callback_data: 'char:current' }],
+            [{ text: '📖 角色详情', callback_data: `char:info:${currentChar === '未知' ? '' : currentChar}` }],
+            [{ text: '📚 角色列表', callback_data: 'char:list' },
+             { text: '🔄 切换角色', callback_data: 'char:switch' }],
             buildBackButton('menu:main'),
         ],
     };
@@ -257,3 +257,4 @@ module.exports = {
     showQuickMenu,
     showSettingsMenu,
 };
+

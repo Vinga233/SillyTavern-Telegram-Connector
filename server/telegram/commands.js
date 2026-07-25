@@ -79,9 +79,37 @@ module.exports = function setupCommands(bot) {
 
             // === 角色管理 ===
             case 'role':
-                const session = sessionStore.get(chatId);
-                const charName = session?.currentCharacter || '未知';
-                await bot.sendMessage(chatId, `🎭 当前角色: ${charName}\n使用 /switch 切换角色`).catch(() => {});
+                const roleSession = sessionStore.get(chatId);
+                const roleCharName = roleSession?.currentCharacter || '未知';
+                await bot.sendMessage(chatId, `🎭 当前角色: ${roleCharName}\n使用 /switch 切换角色`).catch(() => {});
+                break;
+
+            case 'charinfo':
+                const charInfoName = args.length > 0 ? args.join(' ') : (sessionStore.get(chatId)?.currentCharacter || '');
+                if (!charInfoName) {
+                    await bot.sendMessage(chatId, '请指定角色名，例如: /charinfo Seraphina').catch(() => {});
+                    break;
+                }
+                if (!stService.isConnected()) {
+                    await bot.sendMessage(chatId, '⚠️ SillyTavern 未连接').catch(() => {});
+                    break;
+                }
+                try {
+                    await bot.sendMessage(chatId, `🔍 正在查询: ${charInfoName}...`).catch(() => {});
+                    const charService = require('../services/character');
+                    const charData = await charService.getCharacterInfo(chatId, charInfoName);
+                    const infoText = [
+                        `🎭 ${charData.name}`,
+                        '',
+                        charData.description ? `📝 描述\n${charData.description}` : null,
+                        charData.personality ? `🎭 性格\n${charData.personality}` : null,
+                        charData.scenario ? `🌍 场景\n${charData.scenario}` : null,
+                        charData.first_mes ? `💬 开场白\n${charData.first_mes}` : null,
+                    ].filter(Boolean).join('\n\n');
+                    await bot.sendMessage(chatId, infoText).catch(() => {});
+                } catch (err) {
+                    await bot.sendMessage(chatId, `⚠️ 获取角色信息失败: ${err.message}`).catch(() => {});
+                }
                 break;
 
             case 'switch':
@@ -186,3 +214,4 @@ async function handleSystemCommand(bot, command, chatId) {
     stService.client.commandToExecuteOnClose = { command, chatId };
     stService.send({ type: 'system_command', command: 'reload_ui_only', chatId });
 }
+

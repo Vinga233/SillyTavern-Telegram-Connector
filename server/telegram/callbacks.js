@@ -324,3 +324,4 @@ async function showDisconnectedError(bot, chatId, messageId) {
         },
     }).catch(() => {});
 }
+
