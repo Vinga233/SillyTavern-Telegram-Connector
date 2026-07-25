@@ -2,6 +2,7 @@
 // Slash 命令处理
 
 const logger = require('../utils/logger');
+const dt = require('../utils/debugTrace');
 const stService = require('../services/sillytavern');
 const menus = require('../menus');
 const sessionStore = require('../state/session');
@@ -22,6 +23,7 @@ module.exports = function setupCommands(bot) {
 
         // 菜单命令
         if (command === 'start' || command === 'menu') {
+                dt.log('commands', 'menu_command', chatId, { command });
             await menus.showMain(bot, chatId);
             return;
         }
@@ -107,6 +109,7 @@ module.exports = function setupCommands(bot) {
                 break;
 
             case 'switch':
+                dt.log('commands', 'switch_received', chatId, { args });
                 if (args.length === 0) {
                     await bot.sendMessage(chatId, '请指定角色名称，用法: /switch <名称>').catch(() => {});
                 } else {
@@ -114,7 +117,9 @@ module.exports = function setupCommands(bot) {
                     try {
                         const charService = require('../services/character');
                         await charService.switchCharacter(chatId, targetName);
+                    dt.log('commands', 'switch_before_execute', chatId, { targetName });
                         sessionStore.setCurrentCharacter(chatId, targetName);
+                    dt.log('commands', 'switch_session_update', chatId, { targetName });
                         await bot.sendMessage(chatId, `✅ 已切换到角色: ${targetName}`).catch(() => {});
                     } catch (err) {
                         await bot.sendMessage(chatId, `⚠️ 切换失败: ${err.message}`).catch(() => {});
@@ -171,10 +176,44 @@ module.exports = function setupCommands(bot) {
                         } else {
                             await bot.sendMessage(chatId, '❌ 未找到报告: ' + args[1]).catch(() => {});
                         }
+                    } else if (subCmd === 'state') {
+                        const sessionStore = require('../state/session');
+                        const sess = sessionStore.get(chatId);
+                        const rt = runtime.get(chatId);
+                        const rtStats = rt ? runtime.getGenerationStats(chatId) : null;
+                        const stateLines = [
+                            '📊 完整状态',
+                            '',
+                            '── Session ──',
+                            '模式: ' + (sess?.mode || '无'),
+                            '菜单: ' + (sess?.currentMenu || '无'),
+                            '角色: ' + (sess?.currentCharacter || '未知'),
+                            '聊天: ' + (sess?.currentChatName || '无'),
+                            '',
+                            '── Runtime ──',
+                            '生成状态: ' + (rtStats?.status || 'idle'),
+                            '持续时间: ' + (rtStats?.duration ? (rtStats.duration / 1000).toFixed(1) + 's' : '0s'),
+                            '文本长度: ' + (rtStats?.textLength || 0),
+                            '已终结: ' + (rtStats?.finalized ? '是' : '否'),
+                            '',
+                            '── Metrics ──',
+                        ].join('\n');
+                        try {
+                            const snap = metrics.snapshot();
+                            const extraLines = [
+                                '请求总数: ' + snap.total,
+                                '成功: ' + snap.success,
+                                '失败: ' + snap.failed,
+                                '超时: ' + snap.timeout,
+                            ];
+                            await bot.sendMessage(chatId, stateLines + extraLines.join('\n')).catch(() => {});
+                        } catch (_) {
+                            await bot.sendMessage(chatId, stateLines + '（metrics 不可用）').catch(() => {});
+                        }
                     } else if (subCmd === 'runtime') {
                         const entries = runtime.getAllEntries();
                         const active = runtime.getActiveGenerations();
-                        const lines = [
+                        const rLines = [
                             '⚙️ Runtime Status',
                             '',
                             'Active Generations: ' + active.length,
@@ -184,13 +223,13 @@ module.exports = function setupCommands(bot) {
                         if (entries.length > 0) {
                             for (const e of entries) {
                                 const statusIcon = e.status === 'completed' ? '✅' : e.status === 'failed' ? '❌' : e.status === 'idle' ? '⏸' : '⏳';
-                                lines.push(statusIcon + ' chatId=' + e.chatId + ' status=' + e.status + ' dur=' + (e.duration / 1000).toFixed(0) + 's' + (e.traceId ? ' trace=' + e.traceId : ''));
+                                rLines.push(statusIcon + ' chatId=' + e.chatId + ' status=' + e.status + ' dur=' + (e.duration / 1000).toFixed(0) + 's' + (e.traceId ? ' trace=' + e.traceId : ''));
                             }
                         }
-                        await bot.sendMessage(chatId, lines.join('\n')).catch(() => {});
+                        await bot.sendMessage(chatId, rLines.join('\n')).catch(() => {});
                     } else if (subCmd === 'metrics') {
                         const s = metrics.getStats();
-                        const lines = [
+                        const mLines = [
                             '📊 Request Metrics',
                             '',
                             'Total: ' + s.total,
@@ -203,21 +242,21 @@ module.exports = function setupCommands(bot) {
                         ];
                         if (s.actions.length > 0) {
                             for (const a of s.actions) {
-                                lines.push('  ' + a.action + ': ' + a.total + 'req ' + a.avgLatency + 'ms avg');
+                                mLines.push('  ' + a.action + ': ' + a.total + 'req ' + a.avgLatency + 'ms avg');
                             }
                         } else {
-                            lines.push('  (no requests yet)');
+                            mLines.push('  (no requests yet)');
                         }
-                        await bot.sendMessage(chatId, lines.join('\n')).catch(() => {});
+                        await bot.sendMessage(chatId, mLines.join('\n')).catch(() => {});
                     } else if (subCmd === 'requests') {
                         const pendingCount = stService._pendingRequests ? stService._pendingRequests.size : 0;
-                        const lines = [
+                        const reqLines = [
                             '🔄 Pending Requests',
                             '',
                             'Count: ' + pendingCount,
                             'Connected: ' + (stService.isConnected() ? '✅' : '❌'),
                         ];
-                        await bot.sendMessage(chatId, lines.join('\n')).catch(() => {});
+                        await bot.sendMessage(chatId, reqLines.join('\n')).catch(() => {});
                     } else {
                         const msg = await diagnose.buildDebugMessage(chatId);
                         await bot.sendMessage(chatId, msg).catch(() => {});
@@ -228,7 +267,6 @@ module.exports = function setupCommands(bot) {
                     await bot.sendMessage(chatId, '⚠️ 诊断生成失败 #' + errorId + '\n' + err.message).catch(() => {});
                 }
                 break;
-
             // === 状态 ===
             case 'status':
                 const stConnected = stService.isConnected();
@@ -257,17 +295,21 @@ module.exports = function setupCommands(bot) {
 
             // === 原生命令（复用 service） ===
             case 'listchars':
+                dt.log('commands', 'listchars_received', chatId, { command });
             case 'listchats':
                 stService.executeCommand(command, null, chatId);
                 break;
 
             case 'switchchar':
+                dt.log('commands', 'switchchar_received', chatId, { args });
                 if (args.length === 0) {
                     await bot.sendMessage(chatId, '请指定角色名称，用法: /switchchar <名称>').catch(() => {});
                 } else {
                     const scName = args.join(' ');
+                    dt.log('commands', 'switchchar_before_execute', chatId, { scName });
                     stService.executeCommand('switchchar', args, chatId);
                     sessionStore.setCurrentCharacter(chatId, scName);
+                    dt.log('commands', 'switchchar_session_update', chatId, { scName });
                 }
                 break;
 
@@ -281,6 +323,7 @@ module.exports = function setupCommands(bot) {
 
             default:
                 const charMatch = command.match(/^switchchar_(\d+)$/);
+                    dt.log('commands', 'switchchar_N_received', chatId, { command });
                 if (charMatch) {
                     stService.executeCommand(command, null, chatId);
                     break;

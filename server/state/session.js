@@ -2,6 +2,7 @@
 // 用户会话状态管理
 
 const constants = require('../config/constants');
+const dt = require('../utils/debugTrace');
 
 class SessionStore {
     constructor() {
@@ -46,10 +47,12 @@ class SessionStore {
     }
 
     setMode(chatId, mode) {
+        dt.log('session', 'setMode', chatId, { mode });
         return this.update(chatId, { mode });
     }
 
     setMenu(chatId, menu) {
+        dt.log('session', 'setMenu', chatId, { menu });
         return this.update(chatId, { currentMenu: menu });
     }
 
@@ -62,11 +65,11 @@ class SessionStore {
     }
 
     setCurrentCharacter(chatId, name) {
-        return this.update(chatId, { currentCharacter: name });
-    }
-
-    setCurrentChatName(chatId, name) {
-        return this.update(chatId, { currentChatName: name });
+        const session = this._sessions.get(chatId);
+        const oldVal = session?.currentCharacter || null;
+        const ret = this.update(chatId, { currentCharacter: name });
+        dt.log('session', 'setCurrentCharacter', chatId, { old: oldVal, new: name });
+        return ret;
     }
 
     delete(chatId) {
@@ -82,4 +85,5 @@ class SessionStore {
 const sessionStore = new SessionStore();
 
 module.exports = sessionStore;
+
 

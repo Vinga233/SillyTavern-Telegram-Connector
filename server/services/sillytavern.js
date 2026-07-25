@@ -3,6 +3,7 @@
 
 const WebSocket = require("ws");
 const path = require("path");
+const dt = require('../utils/debugTrace');
 const fs = require("fs");
 const logger = require("../utils/logger");
 const config = require("../config/config");
@@ -84,6 +85,7 @@ class SillyTavernService {
                         return;
                     }
                     if (this._onMessageCallback) {
+        dt.log('ws', 'response', data.chatId || null, { type: data.type, requestId: data.requestId, success: data.success, action: data.action });
                         await this._onMessageCallback(data);
                     }
                 } catch (error) {
@@ -157,6 +159,7 @@ class SillyTavernService {
     }
 
     _handleResponse(data) {
+        dt.log('ws', 'send', payload.chatId || null, { type: payload.type, requestId: payload.requestId, command: payload.command, action: payload.action });
         if (data.type === "response") {
             const pending = this._pendingRequests.get(data.requestId);
             if (pending) {

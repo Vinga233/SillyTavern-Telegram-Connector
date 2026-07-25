@@ -1,6 +1,7 @@
 ﻿// menus/index.js
 // 菜单入口和工具函数
 
+const dt = require('../utils/debugTrace');
 const sessionStore = require("../state/session");
 
 function buildMainKeyboard() {
@@ -51,7 +52,8 @@ async function showMain(bot, chatId, messageId) {
 
 async function showCharacterMenu(bot, chatId, messageId) {
     const session = sessionStore.get(chatId);
-    const currentChar = session?.currentCharacter || "未知";
+    const currentChar = session?.currentCharacter || '未知';
+    dt.log('menu', 'showCharacterMenu', chatId, { sessionChar: session?.currentCharacter, displayChar: currentChar });
 
     const text = [
         "\uD83C\uDFAD 角色管理",
