@@ -349,19 +349,25 @@ async function doSwitchCharacter(bot, chatId, messageId, targetName) {
     try {
         await characterService.switchCharacter(chatId, targetName);
         sessionStore.setCurrentCharacter(chatId, targetName);
-        await bot.editMessageText("\u2705 已切换到角色: " + targetName, {
+        // Session 记录角色切换
+        logger.info("switch", "角色切换 chatId=" + chatId + " target=\"" + targetName + "\"");
+        await bot.editMessageText("\u2705 已切换到角色: " + targetName + "\n\n正在初始化新聊天...\n💡 角色开场白将自动显示", {
             chat_id: chatId, message_id: messageId,
             reply_markup: { inline_keyboard: [[{ text: "\uD83C\uDFAD 角色详情", callback_data: "char:info:" + targetName }]] },
         }).catch(() => {});
     } catch (err) {
+        const errorService = require("../services/error");
+        var traceId = null;
+        var rt = runtime.get(chatId);
+        if (rt) traceId = rt.traceId;
+        var errorId = await errorService.createReport(err, "switch", "switchCharacter", { chatId: chatId, target: targetName }, traceId);
+        logger.error("switch", "角色切换失败 chatId=" + chatId + " error=" + errorId);
         await bot.editMessageText("\u26A0\uFE0F 切换失败: " + err.message, {
             chat_id: chatId, message_id: messageId,
             reply_markup: { inline_keyboard: [[{ text: "\u2B1C 返回", callback_data: "char:switch" }]] },
         }).catch(() => {});
     }
 }
-
-// ==================== 聊天历史 ====================
 
 async function showChatHistory(bot, chatId, messageId) {
     if (!stService.isConnected()) { await showDisconnectedError(bot, chatId, messageId); return; }

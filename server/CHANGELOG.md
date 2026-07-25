@@ -5,6 +5,54 @@
 
 ---
 
+---
+
+## [1.7.2] — 2026-07-25
+
+### Character Initialization Fix
+
+修复通过 Telegram 切换角色后不会自动输出角色 greeting / first message 的问题。
+
+### 根因分析
+
+ST 扩展 switchchar 命令处理器仅调用 selectCharacterById() 选择角色，但：
+- 没有调用 doNewChat() 创建新聊天（新聊天才包含 greeting）
+- 没有将 greeting 通过 WebSocket 发送回 Telegram
+
+### 修复：ST Extension（index.js）
+
+- **新增 sendCharacterGreeting(chatId) 函数**：读取 context.chat[0] 中角色的 first message，通过 WebSocket 以 i_reply 类型发送
+- **
+ew 命令**：doNewChat 后自动调用 sendCharacterGreeting
+- **switchchar 命令**：selectCharacterById → doNewChat → sendCharacterGreeting
+- **switchchar_N 命令**：同上
+
+### 修复：Connector（callbacks.js）
+
+- **doSwitchCharacter 增加错误报告**：createReport() 记录 traceId / errorId / chatId
+- **UI 提示**：切换成功后显示"正在初始化新聊天... 角色开场白将自动显示"
+
+### 设计原则
+
+- 不使用 Telegram 端手动生成 greeting
+- 完全依赖 SillyTavern 原生 doNewChat 流程
+- greeting 通过已有 i_reply WebSocket 消息类型传输
+- deleteCurrentChat: false 确保不覆盖已有聊天历史
+
+### 测试场景
+
+| Case | 预期 | 验证 |
+|------|------|------|
+| 切换角色 | 自动出现角色 greeting | ST 端 doNewChat → WS i_reply |
+| Alternate Greeting | 仍然正常工作 | 通过 /select_greeting 选择 → 新建聊天 |
+| 已有聊天切换角色 | 不覆盖历史聊天 | deleteCurrentChat: false |
+
+### 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| SillyTavern/.../index.js | + sendCharacterGreeting 函数; new/switchchar/switchchar_N 注入 |
+| server/telegram/callbacks.js | doSwitchCharacter 增加错误报告 + UI 优化 |
 ## [1.7.1] — 2026-07-25
 
 ### Production Stabilization
