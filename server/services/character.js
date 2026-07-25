@@ -49,6 +49,23 @@ class CharacterService {
         const res = await stService.request("alternate_greetings", { name: charName }, chatId);
         return res.data;
     }
+
+    async getCharacterCardRaw(chatId, charName) {
+        if (!stService.isConnected()) {
+            throw new Error("SillyTavern 未连接");
+        }
+        const res = await stService.request("character_card_raw", { name: charName }, chatId);
+        return res.data;
+    }
+
+    async getNormalizedCharacterCard(chatId, charName) {
+        const raw = await this.getCharacterCardRaw(chatId, charName);
+        if (!raw || !raw.character) {
+            throw new Error("未找到角色: " + charName);
+        }
+        const normalizer = require("../utils/characterNormalizer");
+        return normalizer.normalize(raw.character);
+    }
 }
 
 const { wrapService } = require("../utils/serviceWrapper");

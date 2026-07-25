@@ -194,12 +194,22 @@ function connect() {
                                 greetings: char.data?.alternate_greetings
                                     ? char.data.alternate_greetings.map((g, i) => ({
                                         id: i,
-                                        text: typeof g === 'string' ? g : g.text || '',
-                                        preview: (typeof g === 'string' ? g : g.text || '').substring(0, 80),
-                                        selected: i === (char.data.selected_greeting || 0),
-                                    }))
-                                    : [{ id: 0, text: char.first_mes || '', preview: (char.first_mes || '').substring(0, 80), selected: true }],
-                            };
+                    }
+                    case 'character_card_raw': {
+                        const char = context.characters.find(c => c.name === data.params.name);
+                        if (char) {
+                            // 深拷贝字符对象，避免返回活引用
+                            const raw = {};
+                            for (const key in char) {
+                                if (Object.prototype.hasOwnProperty.call(char, key) && typeof char[key] !== 'function') {
+                                    try {
+                                        raw[key] = JSON.parse(JSON.stringify(char[key]));
+                                    } catch (e) {
+                                        raw[key] = String(char[key]);
+                                    }
+                                }
+                            }
+                            responseData = { character: raw };
                         }
                         break;
                     }
@@ -210,14 +220,16 @@ function connect() {
 
                 // 发送响应
                 if (ws && ws.readyState === WebSocket.OPEN) {
+                    // 判断 success: responseData 有任何非空字段即成功
+                    const hasData = Object.values(responseData).some(v => v !== undefined && v !== null && v !== '');
                     ws.send(JSON.stringify({
                         type: 'response',
                         requestId: data.requestId,
                         request: data.action,
-                        success: !!responseData.name || !!responseData.messages || !!responseData.greetings,
+                        success: hasData,
                         chatId: data.chatId,
                         data: responseData,
-                        error: !responseData.name && !responseData.messages && !responseData.greetings ? '未找到数据' : undefined,
+                        error: !hasData ? '未找到数据' : undefined,
                     }));
                 }
                 return;
@@ -526,4 +538,5 @@ function handleFinalMessage(lastMessageIdInChatArray, chatId) {
     }, 100);
 }
 // 全局事件监听器，用于最终消息更新
+
 

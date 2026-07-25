@@ -97,15 +97,9 @@ module.exports = function setupCommands(bot) {
                 try {
                     await bot.sendMessage(chatId, `🔍 正在查询: ${charInfoName}...`).catch(() => {});
                     const charService = require('../services/character');
-                    const charData = await charService.getCharacterInfo(chatId, charInfoName);
-                    const infoText = [
-                        `🎭 ${charData.name}`,
-                        '',
-                        charData.description ? `📝 描述\n${charData.description}` : null,
-                        charData.personality ? `🎭 性格\n${charData.personality}` : null,
-                        charData.scenario ? `🌍 场景\n${charData.scenario}` : null,
-                        charData.first_mes ? `💬 开场白\n${charData.first_mes}` : null,
-                    ].filter(Boolean).join('\n\n');
+                    const normalizer = require('../utils/characterNormalizer');
+                    const cardData = await charService.getNormalizedCharacterCard(chatId, charInfoName);
+                    const infoText = normalizer.formatTelegramText(cardData);
                     await bot.sendMessage(chatId, infoText).catch(() => {});
                 } catch (err) {
                     await bot.sendMessage(chatId, `⚠️ 获取角色信息失败: ${err.message}`).catch(() => {});

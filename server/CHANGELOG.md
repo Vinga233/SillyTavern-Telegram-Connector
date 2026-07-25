@@ -8,6 +8,44 @@
 ---
 
 
+
+## [1.7.4] — 2026-07-25
+
+### Character Card Bridge v2 — Raw Data Layer
+
+建立完整角色卡数据桥，不再手动挑字段。
+
+### ST Extension
+
+新增 character_card_raw action（index.js）：
+
+- 返回完整 character object（深拷贝，不修改活引用）
+- 不手工挑选字段，由 Connector 端负责结构化
+- 统一 success 判断：Object.values(responseData).some(v => v != null)
+
+### Connector
+
+新增 utils/characterNormalizer.js：
+
+- 标准化角色卡输出：metadata / profile / conversation / advanced 四段结构
+- 兼容新旧格式（char.xxx 与 char.data.xxx）
+- ormatTelegramText() — 生成完整 Telegram 展示文本（含 creator/version/tags/示例对话/开场白）
+- _pick() 优先级：char.data.key → char.key → camelCase → fallback
+
+新增 services/character.js 方法：
+
+- getCharacterCardRaw(chatId, charName) — 调用 character_card_raw action
+- getNormalizedCharacterCard(chatId, charName) — 返回标准化角色卡
+
+更新 /charinfo 命令：使用 getNormalizedCharacterCard + ormatTelegramText
+
+### 修改文件
+
+- st-extension/index.js — 新增 character_card_raw action，统一 success 判断
+- server/utils/characterNormalizer.js — 新增
+- server/services/character.js — 新增 2 个方法
+- server/telegram/commands.js — /charinfo 使用标准化角色卡
+
 ## [1.7.3] — 2026-07-25
 
 ### Character Greeting Event Bridge Fix
@@ -285,4 +323,5 @@ utils/    → 基础设施（2 文件）
 - 白名单检查
 - 重启保护机制
 - 单文件 server.js（772 行）
+
 
