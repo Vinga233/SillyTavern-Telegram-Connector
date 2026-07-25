@@ -158,23 +158,23 @@ module.exports = function setupCommands(bot) {
                     const subCmd = args[0]?.toLowerCase();
 
                     if (subCmd === 'save') {
-                        await bot.sendMessage(chatId, '💾 正在生成诊断包...').catch(() => {});
+                        await bot.sendMessage(chatId, '\u{1F4BE} 正在生成诊断包...').catch(() => {});
                         const filepath = await diagnose.saveDiagnoseFile();
-                        await bot.sendMessage(chatId, ✅ 诊断包已保存\n\${filepath}\`).catch(() => {});
+                        const savedMsg = '\u2705 诊断包已保存\\n' + filepath;
+                        await bot.sendMessage(chatId, savedMsg).catch(() => {});
                     } else if (subCmd === 'report' && args[1]) {
                         const report = reporter.getReport(args[1]);
                         if (report) {
-                            const lines = [
-                                📋 错误报告 #,
-                                ⏱ ,
-                                📍 :,
-                                📝 ,
-                                report.stack ? \n堆栈:\n : '',
-                                report.suggestion ? \n💡 建议:\n : '',
-                            ].join('\n');
-                            await bot.sendMessage(chatId, lines).catch(() => {});
+                            const rLines = [];
+                            rLines.push('\u{1F4CB} 错误报告 #' + report.errorId);
+                            rLines.push('\u23F1 ' + report.timestamp);
+                            rLines.push('\u{1F4CD} ' + report.module + ':' + report.action);
+                            rLines.push('\u{1F4DD} ' + report.message);
+                            if (report.stack) rLines.push('\\n堆栈:\\n' + report.stack.substring(0, 300));
+                            if (report.suggestion) rLines.push('\\n\u{1F4A1} 建议:\\n' + report.suggestion);
+                            await bot.sendMessage(chatId, rLines.join('\\n')).catch(() => {});
                         } else {
-                            await bot.sendMessage(chatId, ❌ 未找到报告: ).catch(() => {});
+                            await bot.sendMessage(chatId, '\u274C 未找到报告: ' + args[1]).catch(() => {});
                         }
                     } else {
                         const msg = await diagnose.buildDebugMessage(chatId);
@@ -183,10 +183,10 @@ module.exports = function setupCommands(bot) {
                 } catch (err) {
                     const errorService = require('../services/error');
                     const errorId = await errorService.createReport(err, 'commands', 'debug', { chatId });
-                    await bot.sendMessage(chatId, ⚠️ 诊断生成失败 #\n).catch(() => {});
+                    const failMsg = '\u26A0\uFE0F 诊断生成失败 #' + errorId + '\\n' + err.message;
+                    await bot.sendMessage(chatId, failMsg).catch(() => {});
                 }
                 break;
-
             // === 状态 ===
             case 'status':
                 const stConnected = stService.isConnected();
@@ -279,6 +279,7 @@ async function handleSystemCommand(bot, command, chatId) {
     stService.client.commandToExecuteOnClose = { command, chatId };
     stService.send({ type: 'system_command', command: 'reload_ui_only', chatId });
 }
+
 
 
 
