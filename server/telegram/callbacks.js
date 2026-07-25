@@ -78,6 +78,54 @@ async function routeCallback(bot, chatId, messageId, module, action, param) {
             } else if (action === 'current') {
                 // 显示当前角色（通过 menu 显示）
                 await menus.showCharacterMenu(bot, chatId, messageId);
+            } else if (action === 'greetings') {
+                const greetCharName = param || session?.currentCharacter;
+                if (!greetCharName) {
+                    await bot.editMessageText('⚠️ 未指定角色', {
+                        chat_id: chatId, message_id: messageId,
+                        reply_markup: { inline_keyboard: [[{ text: '⬅ 返回', callback_data: 'chars:menu' }]] },
+                    }).catch(() => {});
+                    break;
+                }
+                if (!stService.isConnected()) { await showDisconnectedError(bot, chatId, messageId); break; }
+                await bot.editMessageText(`🔍 正在获取开场白: ${greetCharName}...`, {
+                    chat_id: chatId, message_id: messageId,
+                }).catch(() => {});
+                try {
+                    const greetData = await characterService.getAlternateGreetings(chatId, greetCharName);
+                    const rows = greetData.greetings.map((g, i) => [
+                        { text: `${g.selected ? '✅ ' : ''}开场白 ${i + 1}`, callback_data: `char:greeting:${greetCharName}:${i}` },
+                    ]);
+                    rows.push([{ text: '⬅ 返回', callback_data: 'chars:menu' }]);
+                    const greetText = [
+                        `🎭 切换开场白 — ${greetCharName}`,
+                        '',
+                        ...greetData.greetings.map((g, i) =>
+                            `${g.selected ? '✅' : '  '} ${i + 1}. ${g.preview}${g.preview.length >= 80 ? '...' : ''}`
+                        ),
+                    ].join('\n');
+                    await bot.editMessageText(greetText, {
+                        chat_id: chatId, message_id: messageId,
+                        reply_markup: { inline_keyboard: rows },
+                    }).catch(() => {});
+                } catch (err) {
+                    await bot.editMessageText(`⚠️ 获取开场白失败\n\n${err.message}`, {
+                        chat_id: chatId, message_id: messageId,
+                        reply_markup: { inline_keyboard: [[{ text: '⬅ 返回', callback_data: 'chars:menu' }]] },
+                    }).catch(() => {});
+                }
+            } else if (action === 'greeting') {
+                // 格式: char:greeting:角色名:序号
+                const [greetName, greetIdStr] = [param?.split(':')[0], param?.split(':')[1]];
+                if (!greetName || !greetIdStr) { break; }
+                if (stService.isConnected()) {
+                    stService.executeCommand('select_greeting', [greetName, greetIdStr], chatId);
+                    await bot.editMessageText(`🔄 已选择开场白 #${parseInt(greetIdStr) + 1}，正在创建新聊天...`, {
+                        chat_id: chatId, message_id: messageId,
+                    }).catch(() => {});
+                } else {
+                    await showDisconnectedError(bot, chatId, messageId);
+                }
             } else if (action.startsWith('switch:')) {
                 const charName = param;
                 if (stService.isConnected()) {
@@ -385,5 +433,6 @@ async function showDisconnectedError(bot, chatId, messageId) {
         },
     }).catch(() => {});
 }
+
 
 
