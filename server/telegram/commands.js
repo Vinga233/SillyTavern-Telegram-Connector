@@ -53,7 +53,7 @@ module.exports = function setupCommands(bot) {
         }
 
         // 检查 ST 连接
-        if (!stService.isConnected() && command !== 'status') {
+        if (!stService.isConnected() && command !== 'status' && command !== 'debug') {
             await bot.sendMessage(chatId, '⚠️ SillyTavern 未连接，请先确保 SillyTavern 已启动并连接扩展。').catch(() => {});
             return;
         }
@@ -113,40 +113,39 @@ module.exports = function setupCommands(bot) {
                 break;
 
             case 'switch':
-                if (args.length > 0) {
-                    stService.executeCommand('switchchar', args, chatId);
-                    sessionStore.setCurrentCharacter(chatId, args.join(' '));
-                    await bot.sendMessage(chatId, `🔄 正在切换到: ${args.join(' ')}`).catch(() => {});
+                if (args.length === 0) {
+                    await bot.sendMessage(chatId, '请指定角色名称，用法: /switch <名称>').catch(() => {});
                 } else {
-                    await bot.sendMessage(chatId, '请指定角色名，例如: /switch Seraphina\n使用 /listchars 查看可用角色').catch(() => {});
+                    const targetName = args.join(' ');
+                    try {
+                        const charService = require('../services/character');
+                        await charService.switchCharacter(chatId, targetName);
+                        sessionStore.setCurrentCharacter(chatId, targetName);
+                        await bot.sendMessage(chatId, `✅ 已切换到角色: ${targetName}`).catch(() => {});
+                    } catch (err) {
+                        await bot.sendMessage(chatId, `⚠️ 切换失败: ${err.message}`).catch(() => {});
+                    }
                 }
                 break;
 
             case 'context':
-                if (!stService.isConnected()) {
-                    await bot.sendMessage(chatId, '⚠️ SillyTavern 未连接').catch(() => {});
-                    break;
-                }
                 try {
                     const chatService = require('../services/chat');
-                    const chatHistory = await chatService.requestChatHistory(chatId, 5);
-                    sessionStore.setCurrentCharacter(chatId, chatHistory.characterName);
-                    sessionStore.setCurrentChatName(chatId, chatHistory.chatName);
-                    const lines = [
-                        '📖 当前聊天',
-                        `🎭 ${chatHistory.characterName} | 💬 ${chatHistory.chatName}`,
-                        '',
-                        '━━━━━━━━━━━━━━━━━━━━',
-                        ...chatHistory.messages.map(m => {
-                            const prefix = m.role === 'user' ? '你' : chatHistory.characterName;
-                            const text = m.text.length > 60 ? m.text.substring(0, 60) + '...' : m.text;
-                            return `${prefix}：${text}`;
-                        }),
-                        '━━━━━━━━━━━━━━━━━━━━',
-                    ].join('\n');
-                    await bot.sendMessage(chatId, lines).catch(() => {});
+                    const historyData = await chatService.requestChatHistory(chatId, 6);
+                    const charName = historyData.characterName || sessionStore.get(chatId)?.currentCharacter || '未知';
+                    const lines = [`📖 上下文 — ${charName}`, ''];
+                    if (historyData.messages && historyData.messages.length > 0) {
+                        for (const msg of historyData.messages) {
+                            const role = msg.is_user ? '👤' : '🤖';
+                            const text = (msg.text || msg.mes || '').substring(0, 120).replace(/\n/g, ' ');
+                            lines.push(`${role} ${text}`);
+                        }
+                    } else {
+                        lines.push('（暂无消息记录）');
+                    }
+                    await bot.sendMessage(chatId, lines.join('\n')).catch(() => {});
                 } catch (err) {
-                    await bot.sendMessage(chatId, `⚠️ 获取聊天上下文失败: ${err.message}`).catch(() => {});
+                    await bot.sendMessage(chatId, `⚠️ 获取上下文失败: ${err.message}`).catch(() => {});
                 }
                 break;
 
@@ -155,27 +154,76 @@ module.exports = function setupCommands(bot) {
                 try {
                     const diagnose = require('../utils/diagnose');
                     const reporter = require('../utils/reporter');
+                    const runtime = require('../state/runtime');
+                    const metrics = require('../services/metrics');
                     const subCmd = args[0]?.toLowerCase();
 
                     if (subCmd === 'save') {
-                        await bot.sendMessage(chatId, '\u{1F4BE} 正在生成诊断包...').catch(() => {});
+                        await bot.sendMessage(chatId, '💾 正在生成诊断包...').catch(() => {});
                         const filepath = await diagnose.saveDiagnoseFile();
-                        const savedMsg = '\u2705 诊断包已保存\\n' + filepath;
-                        await bot.sendMessage(chatId, savedMsg).catch(() => {});
+                        await bot.sendMessage(chatId, '✅ 诊断包已保存\n' + filepath).catch(() => {});
                     } else if (subCmd === 'report' && args[1]) {
                         const report = reporter.getReport(args[1]);
                         if (report) {
-                            const rLines = [];
-                            rLines.push('\u{1F4CB} 错误报告 #' + report.errorId);
-                            rLines.push('\u23F1 ' + report.timestamp);
-                            rLines.push('\u{1F4CD} ' + report.module + ':' + report.action);
-                            rLines.push('\u{1F4DD} ' + report.message);
-                            if (report.stack) rLines.push('\\n堆栈:\\n' + report.stack.substring(0, 300));
-                            if (report.suggestion) rLines.push('\\n\u{1F4A1} 建议:\\n' + report.suggestion);
-                            await bot.sendMessage(chatId, rLines.join('\\n')).catch(() => {});
+                            const rLines = [
+                                '📋 错误报告 #' + report.errorId,
+                                '⏱ ' + report.timestamp,
+                                '📍 ' + report.module + ':' + report.action,
+                                '📝 ' + report.message,
+                            ];
+                            if (report.stack) rLines.push('\n堆栈:\n' + report.stack.substring(0, 300));
+                            if (report.suggestion) rLines.push('\n💡 建议:\n' + report.suggestion);
+                            await bot.sendMessage(chatId, rLines.join('\n')).catch(() => {});
                         } else {
-                            await bot.sendMessage(chatId, '\u274C 未找到报告: ' + args[1]).catch(() => {});
+                            await bot.sendMessage(chatId, '❌ 未找到报告: ' + args[1]).catch(() => {});
                         }
+                    } else if (subCmd === 'runtime') {
+                        const entries = runtime.getAllEntries();
+                        const active = runtime.getActiveGenerations();
+                        const lines = [
+                            '⚙️ Runtime Status',
+                            '',
+                            'Active Generations: ' + active.length,
+                            'Total Entries: ' + entries.length,
+                            '',
+                        ];
+                        if (entries.length > 0) {
+                            for (const e of entries) {
+                                const statusIcon = e.status === 'completed' ? '✅' : e.status === 'failed' ? '❌' : e.status === 'idle' ? '⏸' : '⏳';
+                                lines.push(statusIcon + ' chatId=' + e.chatId + ' status=' + e.status + ' dur=' + (e.duration / 1000).toFixed(0) + 's' + (e.traceId ? ' trace=' + e.traceId : ''));
+                            }
+                        }
+                        await bot.sendMessage(chatId, lines.join('\n')).catch(() => {});
+                    } else if (subCmd === 'metrics') {
+                        const s = metrics.getStats();
+                        const lines = [
+                            '📊 Request Metrics',
+                            '',
+                            'Total: ' + s.total,
+                            'Success: ' + s.success,
+                            'Failed: ' + s.failed,
+                            'Timeout: ' + s.timeout,
+                            'Avg Latency: ' + s.avgLatency + 'ms',
+                            '',
+                            'By Action:',
+                        ];
+                        if (s.actions.length > 0) {
+                            for (const a of s.actions) {
+                                lines.push('  ' + a.action + ': ' + a.total + 'req ' + a.avgLatency + 'ms avg');
+                            }
+                        } else {
+                            lines.push('  (no requests yet)');
+                        }
+                        await bot.sendMessage(chatId, lines.join('\n')).catch(() => {});
+                    } else if (subCmd === 'requests') {
+                        const pendingCount = stService._pendingRequests ? stService._pendingRequests.size : 0;
+                        const lines = [
+                            '🔄 Pending Requests',
+                            '',
+                            'Count: ' + pendingCount,
+                            'Connected: ' + (stService.isConnected() ? '✅' : '❌'),
+                        ];
+                        await bot.sendMessage(chatId, lines.join('\n')).catch(() => {});
                     } else {
                         const msg = await diagnose.buildDebugMessage(chatId);
                         await bot.sendMessage(chatId, msg).catch(() => {});
@@ -183,10 +231,10 @@ module.exports = function setupCommands(bot) {
                 } catch (err) {
                     const errorService = require('../services/error');
                     const errorId = await errorService.createReport(err, 'commands', 'debug', { chatId });
-                    const failMsg = '\u26A0\uFE0F 诊断生成失败 #' + errorId + '\\n' + err.message;
-                    await bot.sendMessage(chatId, failMsg).catch(() => {});
+                    await bot.sendMessage(chatId, '⚠️ 诊断生成失败 #' + errorId + '\n' + err.message).catch(() => {});
                 }
                 break;
+
             // === 状态 ===
             case 'status':
                 const stConnected = stService.isConnected();
@@ -236,7 +284,6 @@ module.exports = function setupCommands(bot) {
                 break;
 
             default:
-                // switchchar_N / switchchat_N 格式
                 const charMatch = command.match(/^switchchar_(\d+)$/);
                 if (charMatch) {
                     stService.executeCommand(command, null, chatId);
@@ -279,7 +326,3 @@ async function handleSystemCommand(bot, command, chatId) {
     stService.client.commandToExecuteOnClose = { command, chatId };
     stService.send({ type: 'system_command', command: 'reload_ui_only', chatId });
 }
-
-
-
-
