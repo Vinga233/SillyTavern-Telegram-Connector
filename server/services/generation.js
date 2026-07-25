@@ -1,5 +1,10 @@
 ﻿// services/generation.js
 // 流式消息处理 — 管理 SillyTavern → Telegram 的流式回复
+//
+// 流式消息生命周期：
+//   stream_chunk         → 增量推送，节流编辑消息
+//   stream_end           → 仅结束信号，不携带文本
+//   final_message_update → 唯一终态文本，覆盖消息
 
 const logger = require('../utils/logger');
 const stService = require('./sillytavern');
@@ -31,7 +36,6 @@ class GenerationService {
             };
             stService.ongoingStreams.set(data.chatId, session);
 
-            // 发送初始消息
             try {
                 const sentMessage = await this.bot.sendMessage(data.chatId, '正在思考...');
                 resolveMessagePromise(sentMessage.message_id);
@@ -43,7 +47,7 @@ class GenerationService {
             session.lastText = data.text;
         }
 
-        // 节流编辑
+        // 节流编辑（500ms）
         if (!session.timer) {
             session.timer = setTimeout(async () => {
                 const currentSession = stService.ongoingStreams.get(data.chatId);
@@ -74,25 +78,12 @@ class GenerationService {
                 clearTimeout(session.timer);
                 session.timer = null;
             }
-            try {
-                const messageId = await session.messagePromise;
-                if (messageId && data.text) {
-                    await this.bot.editMessageText(data.text, {
-                        chat_id: data.chatId,
-                        message_id: messageId,
-                    });
-                }
-            } catch (err) {
-                logger.error('generation', '流式结束编辑消息失败:', err.message);
-            }
-            stService.ongoingStreams.delete(data.chatId);
+            // stream_end 仅作为结束信号
+            // 不编辑消息，不发送文本
+            // 等待 final_message_update 携带渲染后的终态文本
+            logger.info('generation', `ChatID ${data.chatId} 流式结束，等待 final_message_update`);
         } else {
             logger.warn('generation', `收到 stream_end 但无对应会话: ${data.chatId}`);
-            if (data.text) {
-                await this.bot.sendMessage(data.chatId, data.text).catch(err => {
-                    logger.error('generation', '发送流式结束消息失败:', err.message);
-                });
-            }
         }
     }
 
@@ -127,7 +118,6 @@ class GenerationService {
     }
 
     async handleAiReply(data) {
-        // 清理可能的流式会话
         if (stService.ongoingStreams.has(data.chatId)) {
             logger.info('generation', `清理 ChatID ${data.chatId} 的流式会话（收到非流式回复）`);
             stService.ongoingStreams.delete(data.chatId);
@@ -158,7 +148,6 @@ class GenerationService {
         if (data.message) {
             logger.info('generation', `命令消息: ${data.message}`);
         }
-        // 如果命令执行结果需要通知用户，发送消息
         if (data.notifyUser && data.chatId && data.message) {
             await this.bot.sendMessage(data.chatId, data.message).catch(err => {
                 logger.error('generation', '发送命令执行通知失败:', err.message);
