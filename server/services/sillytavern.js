@@ -19,6 +19,8 @@ class SillyTavernService {
         this._onMessageCallback = null;
         this._onConnectionChange = null;
         this.ongoingStreams = new Map();
+        this._pendingRequests = new Map();
+        this._requestIdCounter = 0;
     }
 
     checkRestartProtection() {
@@ -76,6 +78,11 @@ class SillyTavernService {
                 let data;
                 try {
                     data = JSON.parse(message);
+                    // 统一 response 协议处理
+                    if (data && data.type === 'response') {
+                        this._handleResponse(data);
+                        return;
+                    }
                     if (this._onMessageCallback) {
                         await this._onMessageCallback(data);
                     }
@@ -118,6 +125,52 @@ class SillyTavernService {
             args: args,
             chatId: chatId,
         });
+    }
+
+    /**
+     * 发送请求并等待响应（统一 response 协议）
+     * @param {string} action - 请求动作名
+     * @param {object} params - 请求参数
+     * @param {number} chatId - Telegram chatId
+     * @param {number} timeoutMs - 超时时间（默认 10s）
+     * @returns {Promise<object>} - 响应数据
+     */
+    async request(action, params, chatId, timeoutMs = 10000) {
+        return new Promise((resolve, reject) => {
+            const requestId = ++this._requestIdCounter;
+            const payload = {
+                type: 'request',
+                action,
+                requestId,
+                chatId,
+                params,
+            };
+            this._pendingRequests.set(requestId, { resolve, reject });
+            setTimeout(() => {
+                if (this._pendingRequests.has(requestId)) {
+                    this._pendingRequests.delete(requestId);
+                    reject(new Error(\请求超时: \\));
+                }
+            }, timeoutMs);
+            this.send(payload);
+        });
+    }
+
+    /**
+     * 处理 response 类型消息
+     */
+    _handleResponse(data) {
+        if (data.type === 'response') {
+            const pending = this._pendingRequests.get(data.requestId);
+            if (pending) {
+                this._pendingRequests.delete(data.requestId);
+                if (data.success) {
+                    pending.resolve(data);
+                } else {
+                    pending.reject(new Error(data.error || '请求失败'));
+                }
+            }
+        }
     }
 
     reloadServer(chatId) {
@@ -180,3 +233,4 @@ class SillyTavernService {
 const stService = new SillyTavernService();
 
 module.exports = stService;
+
