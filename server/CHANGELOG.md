@@ -7,6 +7,39 @@
 
 ---
 
+
+## [1.7.3] — 2026-07-25
+
+### Character Greeting Event Bridge Fix
+
+修复通过 Telegram 切换角色后角色 greeting / first_mes 不显示的问题。
+
+### 根因回顾
+
+V1.7.2 使用了 setTimeout + context.chat[0] 读取 first_mes 并手动发送 ai_reply 的方式，这种方案：
+- 违反 ST 原生渲染流程
+- 存在竞态条件（setTimeout 500ms）
+- 绕过 event system
+
+### 修复方案
+
+移除 sendCharacterGreeting() 函数，改为直接监听 ST 原生事件：
+
+1. 在 switchchar / new / switchchar_N 三个 handler 中注册 EVENT listener
+2. 监听 CHARACTER_MESSAGE_RENDERED (type === 'first_message')
+3. 收到事件后调用 handleFinalMessage(eventChatId + 1, tgChatId) 发送 greeting
+4. 5 秒超时自动清理 listener（防止泄漏）
+
+### SillyTavern 原生流程
+
+selectCharacterById()
+ → getChat() → getChatResult()
+ → getFirstMessage() → chat.push(first_mes)
+ → CHARACTER_MESSAGE_RENDERED(chat_id=0, 'first_message')
+
+### 修改文件
+
+- st-extension/index.js — 替换 sendCharacterGreeting() 为事件驱动方案
 ## [1.7.2] — 2026-07-25
 
 ### Character Initialization Fix
@@ -252,3 +285,4 @@ utils/    → 基础设施（2 文件）
 - 白名单检查
 - 重启保护机制
 - 单文件 server.js（772 行）
+
