@@ -12,4 +12,10 @@ module.exports = {
     // 用户白名单（空数组 = 允许所有用户）
     // 可从 @userinfobot 获取你的 User ID
     allowedUserIds: [],
+
+    // 管理员 Telegram User ID（可选）
+    // 配置后，错误报告会自动通知到该用户
+    // 从 @userinfobot 获取你的 User ID
+    adminChatId: null,
 };
+

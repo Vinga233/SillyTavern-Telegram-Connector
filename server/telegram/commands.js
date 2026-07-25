@@ -150,6 +150,43 @@ module.exports = function setupCommands(bot) {
                 }
                 break;
 
+            // === 调试 ===
+            case 'debug':
+                try {
+                    const diagnose = require('../utils/diagnose');
+                    const reporter = require('../utils/reporter');
+                    const subCmd = args[0]?.toLowerCase();
+
+                    if (subCmd === 'save') {
+                        await bot.sendMessage(chatId, '💾 正在生成诊断包...').catch(() => {});
+                        const filepath = await diagnose.saveDiagnoseFile();
+                        await bot.sendMessage(chatId, ✅ 诊断包已保存\n\${filepath}\`).catch(() => {});
+                    } else if (subCmd === 'report' && args[1]) {
+                        const report = reporter.getReport(args[1]);
+                        if (report) {
+                            const lines = [
+                                📋 错误报告 #,
+                                ⏱ ,
+                                📍 :,
+                                📝 ,
+                                report.stack ? \n堆栈:\n : '',
+                                report.suggestion ? \n💡 建议:\n : '',
+                            ].join('\n');
+                            await bot.sendMessage(chatId, lines).catch(() => {});
+                        } else {
+                            await bot.sendMessage(chatId, ❌ 未找到报告: ).catch(() => {});
+                        }
+                    } else {
+                        const msg = await diagnose.buildDebugMessage(chatId);
+                        await bot.sendMessage(chatId, msg).catch(() => {});
+                    }
+                } catch (err) {
+                    const errorService = require('../services/error');
+                    const errorId = await errorService.createReport(err, 'commands', 'debug', { chatId });
+                    await bot.sendMessage(chatId, ⚠️ 诊断生成失败 #\n).catch(() => {});
+                }
+                break;
+
             // === 状态 ===
             case 'status':
                 const stConnected = stService.isConnected();
@@ -242,5 +279,6 @@ async function handleSystemCommand(bot, command, chatId) {
     stService.client.commandToExecuteOnClose = { command, chatId };
     stService.send({ type: 'system_command', command: 'reload_ui_only', chatId });
 }
+
 
 
