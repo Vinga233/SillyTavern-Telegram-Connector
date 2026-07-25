@@ -149,7 +149,7 @@ class SillyTavernService {
             setTimeout(() => {
                 if (this._pendingRequests.has(requestId)) {
                     this._pendingRequests.delete(requestId);
-                    reject(new Error(\请求超时: \\));
+                    reject(new Error(`请求超时: ${action}`));
                 }
             }, timeoutMs);
             this.send(payload);
@@ -233,4 +233,3 @@ class SillyTavernService {
 const stService = new SillyTavernService();
 
 module.exports = stService;
-
