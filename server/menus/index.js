@@ -16,8 +16,9 @@ function buildMainKeyboard() {
              { text: '🧠 记忆管理', callback_data: 'memory:menu' }],
             [{ text: '📚 世界书', callback_data: 'worldbook:menu' },
              { text: '⚡ 快捷回复', callback_data: 'quick:menu' }],
-            [{ text: '🔄 生成控制', callback_data: 'generate:menu' }],
-            [{ text: '📝 聊天管理', callback_data: 'chat:new' },
+            [{ text: '🔄 生成控制', callback_data: 'generate:menu' },
+             { text: '📖 上下文', callback_data: 'chat:history' }],
+            [{ text: '📝 新聊天', callback_data: 'chat:new' },
              { text: '⚙ 设置', callback_data: 'settings:menu' }],
             [{ text: '📊 状态', callback_data: 'status:show' },
              { text: '❓ 帮助', callback_data: 'help:show' }],
@@ -257,4 +258,5 @@ module.exports = {
     showQuickMenu,
     showSettingsMenu,
 };
+
 

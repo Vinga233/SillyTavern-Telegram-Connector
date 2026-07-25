@@ -34,6 +34,18 @@ class ChatService {
         stService.client.send(payload);
         return true;
     }
+
+    /**
+     * 获取聊天上下文历史（使用统一 response 协议）
+     */
+    async requestChatHistory(chatId, limit = 5) {
+        if (!stService.isConnected()) {
+            throw new Error('SillyTavern 未连接');
+        }
+        const res = await stService.request('chat_history', { limit }, chatId);
+        return res.data;
+    }
 }
 
 module.exports = new ChatService();
+

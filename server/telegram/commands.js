@@ -122,6 +122,34 @@ module.exports = function setupCommands(bot) {
                 }
                 break;
 
+            case 'context':
+                if (!stService.isConnected()) {
+                    await bot.sendMessage(chatId, '⚠️ SillyTavern 未连接').catch(() => {});
+                    break;
+                }
+                try {
+                    const chatService = require('../services/chat');
+                    const chatHistory = await chatService.requestChatHistory(chatId, 5);
+                    sessionStore.setCurrentCharacter(chatId, chatHistory.characterName);
+                    sessionStore.setCurrentChatName(chatId, chatHistory.chatName);
+                    const lines = [
+                        '📖 当前聊天',
+                        `🎭 ${chatHistory.characterName} | 💬 ${chatHistory.chatName}`,
+                        '',
+                        '━━━━━━━━━━━━━━━━━━━━',
+                        ...chatHistory.messages.map(m => {
+                            const prefix = m.role === 'user' ? '你' : chatHistory.characterName;
+                            const text = m.text.length > 60 ? m.text.substring(0, 60) + '...' : m.text;
+                            return `${prefix}：${text}`;
+                        }),
+                        '━━━━━━━━━━━━━━━━━━━━',
+                    ].join('\n');
+                    await bot.sendMessage(chatId, lines).catch(() => {});
+                } catch (err) {
+                    await bot.sendMessage(chatId, `⚠️ 获取聊天上下文失败: ${err.message}`).catch(() => {});
+                }
+                break;
+
             // === 状态 ===
             case 'status':
                 const stConnected = stService.isConnected();
@@ -214,4 +242,5 @@ async function handleSystemCommand(bot, command, chatId) {
     stService.client.commandToExecuteOnClose = { command, chatId };
     stService.send({ type: 'system_command', command: 'reload_ui_only', chatId });
 }
+
 

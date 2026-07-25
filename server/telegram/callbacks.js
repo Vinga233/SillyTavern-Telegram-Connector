@@ -205,6 +205,67 @@ async function routeCallback(bot, chatId, messageId, module, action, param) {
             }
             break;
 
+        // ===== 聊天管理 =====
+        case 'chat':
+            if (action === 'new') {
+                if (stService.isConnected()) {
+                    stService.executeCommand('new', null, chatId);
+                    await bot.editMessageText('📝 正在创建新聊天...', {
+                        chat_id: chatId,
+                        message_id: messageId,
+                    }).catch(() => {});
+                } else {
+                    await showDisconnectedError(bot, chatId, messageId);
+                }
+            } else if (action === 'history') {
+                if (!stService.isConnected()) {
+                    await showDisconnectedError(bot, chatId, messageId);
+                    break;
+                }
+                await bot.editMessageText('📖 正在获取聊天上下文...', {
+                    chat_id: chatId,
+                    message_id: messageId,
+                }).catch(() => {});
+                try {
+                    const chatHistory = await chatService.requestChatHistory(chatId, 5);
+                    sessionStore.setCurrentCharacter(chatId, chatHistory.characterName);
+                    sessionStore.setCurrentChatName(chatId, chatHistory.chatName);
+                    const lines = [
+                        '📖 当前聊天',
+                        `🎭 ${chatHistory.characterName} | 💬 ${chatHistory.chatName}`,
+                        '',
+                        '━━━━━━━━━━━━━━━━━━━━',
+                        ...chatHistory.messages.map(m => {
+                            const prefix = m.role === 'user' ? '你' : chatHistory.characterName;
+                            const text = m.text.length > 60 ? m.text.substring(0, 60) + '...' : m.text;
+                            return `${prefix}：${text}`;
+                        }),
+                        '━━━━━━━━━━━━━━━━━━━━',
+                        '',
+                        `📊 共 ${chatHistory.messages.length} 条最近消息`,
+                    ].join('\n');
+                    await bot.editMessageText(lines, {
+                        chat_id: chatId,
+                        message_id: messageId,
+                        reply_markup: {
+                            inline_keyboard: [
+                                [{ text: '🔄 刷新', callback_data: 'chat:history' }],
+                                [{ text: '📝 新聊天', callback_data: 'chat:new' }],
+                                [{ text: '⬅ 返回', callback_data: 'menu:main' }],
+                            ],
+                        },
+                    }).catch(() => {});
+                } catch (err) {
+                    logger.error('callback', `获取聊天历史失败: ${err.message}`);
+                    await bot.editMessageText(`⚠️ 获取聊天历史失败\n\n${err.message}`, {
+                        chat_id: chatId,
+                        message_id: messageId,
+                        reply_markup: { inline_keyboard: [[{ text: '⬅ 返回', callback_data: 'menu:main' }]] },
+                    }).catch(() => {});
+                }
+            }
+            break;
+
         // ===== 快捷回复 =====
         case 'quick':
             if (action === 'menu') {
@@ -324,4 +385,5 @@ async function showDisconnectedError(bot, chatId, messageId) {
         },
     }).catch(() => {});
 }
+
 

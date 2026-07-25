@@ -15,6 +15,7 @@ class SessionStore {
             mode: constants.MODE.CHAT,
             currentMenu: null,
             currentCharacter: null,
+            currentChatName: null,
             pendingAction: null,
             menuMessageId: null,
             lastMessageId: null,
@@ -64,6 +65,10 @@ class SessionStore {
         return this.update(chatId, { currentCharacter: name });
     }
 
+    setCurrentChatName(chatId, name) {
+        return this.update(chatId, { currentChatName: name });
+    }
+
     delete(chatId) {
         this._sessions.delete(chatId);
     }
@@ -77,3 +82,4 @@ class SessionStore {
 const sessionStore = new SessionStore();
 
 module.exports = sessionStore;
+
