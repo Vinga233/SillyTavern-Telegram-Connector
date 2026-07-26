@@ -29,6 +29,7 @@ let lastProcessedChatId = null; // 用于存储最后处理过的Telegram chatId
 // 添加一个全局变量来跟踪当前是否处于流式模式
 let isStreamingMode = false;
 let _greetingLock = false;
+let _finalSendLocks = {}; // handleFinalMessage 单次执行锁
 
 // 角色切换后直接读取 chat[0] 发送 first_mes，消除事件竞争
 function sendGreetingAfterSwitch(chatId) {
@@ -160,7 +161,7 @@ function connect() {
                 // 6. 注册终态消息处理器（once），接收渲染后的最终文本
                 const finalHandler = (lastMessageId) => handleFinalMessage(lastMessageId, data.chatId);
                 eventSource.once(event_types.GENERATION_ENDED, finalHandler);
-                eventSource.once(event_types.GENERATION_STOPPED, finalHandler);
+
 
                 // 7. 触发SillyTavern的生成流程，并用try...catch包裹
                 try {
@@ -635,6 +636,13 @@ eventSource.on(event_types.CHAT_LOADED, function(args) {
 // 终态消息处理器，由 user_message handler 中 once 注册
 function handleFinalMessage(lastMessageIdInChatArray, chatId) {
     console.log('[TG Bridge Trace] handleFinalMessage entered, lastMessageIdInChatArray=' + lastMessageIdInChatArray + ', chatId=' + chatId);
+    // single-execution lock: 防止同一次生成重复发送
+    const _lockKey = chatId + '_' + lastMessageIdInChatArray;
+    if (_finalSendLocks[_lockKey]) {
+        console.log('[TG Bridge Trace] handleFinalMessage locked (already processing), lockKey=' + _lockKey);
+        return;
+    }
+    _finalSendLocks[_lockKey] = true;
     // 确保WebSocket已连接，并且我们有一个有效的chatId来发送更新
     if (!ws || ws.readyState !== WebSocket.OPEN || !chatId) {
         console.log('[TG Bridge Trace] handleFinalMessage return: ws=' + (!!ws) + ' readyState=' + (ws ? ws.readyState : 'N/A') + ' chatId=' + chatId);
