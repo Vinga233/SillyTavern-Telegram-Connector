@@ -15,51 +15,51 @@ Examples:
 
 ### Step 1: Generate release notes
 
-`ash
+```bash
 node scripts/release-notes.js <prev-tag> HEAD <new-version>
-`
+```
 
 Example:
-`ash
+```bash
 node scripts/release-notes.js v1.8.0-history-chat-stable HEAD v1.8.1
-`
+```
 
 Preview output, then append to CHANGELOG.md:
-`ash
+```bash
 node scripts/release-notes.js v1.8.0-history-chat-stable HEAD v1.8.1 >> CHANGELOG.md
-`
+```
 
 ### Step 2: Commit CHANGELOG.md
 
-`ash
+```bash
 git add CHANGELOG.md
 git commit -m "docs: add v1.8.1 changelog"
-`
+```
 
 ### Step 3: Create tag
 
-`ash
+```bash
 git tag -a <version> <commit-hash> -m "<message>"
-`
+```
 
 Examples:
-`ash
+```bash
 # Stable release
 git tag -a v1.8.1 HEAD -m "Bug fixes and minor improvements"
 
 # Feature release with suffix
 git tag -a v1.8.0-history-chat-stable a255afc -m "Stable version: Telegram history chat support"
-`
+```
 
 ### Step 4: Push
 
-`ash
+```bash
 # Push commits
 git push origin master
 
 # Push tag
 git push origin <tag-name>
-`
+```
 
 ## Tag Naming Rules
 
