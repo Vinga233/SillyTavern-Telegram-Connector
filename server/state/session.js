@@ -72,6 +72,14 @@ class SessionStore {
         return ret;
     }
 
+    setCurrentChatName(chatId, name) {
+        const session = this._sessions.get(chatId);
+        const oldVal = session?.currentChatName || null;
+        const ret = this.update(chatId, { currentChatName: name });
+        dt.log('session', 'setCurrentChatName', chatId, { old: oldVal, new: name });
+        return ret;
+    }
+
     delete(chatId) {
         this._sessions.delete(chatId);
     }

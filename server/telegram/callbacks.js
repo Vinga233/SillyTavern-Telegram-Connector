@@ -145,6 +145,16 @@ async function routeCallback(bot, chatId, messageId, module, action, param) {
             break;
 
         // ===== 聊天管理 =====
+        // ===== 历史聊天 =====
+        case "chats":
+            if (action === "list") {
+                if (!stService.isConnected()) { await showDisconnectedError(bot, chatId, messageId); break; }
+                stService.executeCommand("listchats", null, chatId);
+                await bot.editMessageText("\uD83D\uDCC1 \u6B63\u5728\u83B7\u53D6\u5386\u53F2\u804A\u5929...", {
+                    chat_id: chatId, message_id: messageId,
+                }).catch(() => {});
+            }
+            break;
         case "chat":
             if (action === "new") {
                 if (!stService.isConnected()) { await showDisconnectedError(bot, chatId, messageId); break; }

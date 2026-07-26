@@ -159,7 +159,7 @@ class SillyTavernService {
     }
 
     _handleResponse(data) {
-        dt.log('ws', 'send', payload.chatId || null, { type: payload.type, requestId: payload.requestId, command: payload.command, action: payload.action });
+        dt.log('ws', 'response', data.chatId || null, { type: data.type, requestId: data.requestId, success: data.success, action: data.action });
         if (data.type === "response") {
             const pending = this._pendingRequests.get(data.requestId);
             if (pending) {
@@ -233,3 +233,4 @@ class SillyTavernService {
 
 const stService = new SillyTavernService();
 module.exports = stService;
+

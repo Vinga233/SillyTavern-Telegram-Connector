@@ -31,20 +31,31 @@ class GenerationService {
     // ==================== stream_chunk ====================
 
     async handleStreamChunk(data) {
+        console.log("[TG RECV] handleStreamChunk chatId=" + data.chatId + " text.length=" + (data.text ? data.text.length : 0));
         const chatId = data.chatId;
 
+        // 如果上一轮已 finalized，重置运行时为新消息创建新 Telegram 消息
         if (runtime.isFinalized(chatId)) {
-            logger.debug("generation", "[chatId=" + chatId + "] 已 finalized，忽略 stream_chunk");
-            return;
+            console.log("[TG RUNTIME RESET] chatId=" + chatId + " oldMessageId=" + (runtime.get(chatId)?.generation?.telegramMessageId || "none") + " newGeneration=true");
+            logger.info("generation", "[chatId=" + chatId + "] 检测到新消息流，重置 runtime");
+            this._clearFinalWaitTimer(chatId);
+            if (this._streamTimers.has(chatId)) {
+                clearTimeout(this._streamTimers.get(chatId));
+                this._streamTimers.delete(chatId);
+            }
+            runtime.reset(chatId);
         }
 
         let rtEntry = runtime.get(chatId);
         if (!rtEntry || rtEntry.generation.status === runtime.STATUS.IDLE) {
             runtime.startGeneration(chatId);
             try {
+                console.log("[TG SEND START] initial chatId=" + chatId);
                 const sentMessage = await this.bot.sendMessage(chatId, "正在思考...");
+                console.log("[TG SEND SUCCESS] initial message_id=" + sentMessage.message_id + " chatId=" + chatId);
                 runtime.startStreaming(chatId, sentMessage.message_id);
             } catch (err) {
+                console.log("[TG SEND ERROR] initial chatId=" + chatId + " error=" + err.message);
                 logger.error("generation", "[chatId=" + chatId + "] 发送初始消息失败: " + err.message);
                 runtime.failGeneration(chatId);
                 return;
@@ -79,6 +90,7 @@ class GenerationService {
     // ==================== stream_end ====================
 
     async handleStreamEnd(data) {
+        console.log("[TG RECV] handleStreamEnd chatId=" + data.chatId);
         const chatId = data.chatId;
         const entry = runtime.get(chatId);
 
@@ -158,12 +170,13 @@ class GenerationService {
     async handleFinalUpdate(data) {
         const chatId = data.chatId;
         const entry = runtime.get(chatId);
+        console.log("[TG RECV] handleFinalUpdate chatId=" + chatId + " text.length=" + (data.text ? data.text.length : 0) + " telegramMessageId=" + (entry && entry.generation ? entry.generation.telegramMessageId : "no-entry"));
 
         if (entry && entry.generation.finalized) {
-            logger.debug("generation", "[chatId=" + chatId + "] 已 finalized，忽略重复的 final_message_update");
+            console.log("[TG FINAL GUARD] chatId=" + chatId + " finalized=" + entry.generation.finalized + " ignored=true");
+            logger.debug("generation", "[chatId=" + chatId + "] 已 finalized，忽略 final_message_update");
             return;
         }
-
         // 清除恢复超时（final 已到达）
         this._clearFinalWaitTimer(chatId);
 
@@ -174,18 +187,31 @@ class GenerationService {
 
         if (entry && entry.generation.telegramMessageId) {
             try {
-                await this.bot.editMessageText(data.text, {
+                console.log("[TG SEND START] editMessageText final_update chatId=" + chatId);
+                    await this.bot.editMessageText(data.text, {
                     chat_id: chatId,
                     message_id: entry.generation.telegramMessageId,
                 });
-                logger.info("generation", "[chatId=" + chatId + "] 流式最终更新已发送");
+                console.log("[TG SEND SUCCESS] editMessageText final_update chatId=" + chatId);
+                    logger.info("generation", "[chatId=" + chatId + "] 流式最终更新已发送");
             } catch (err) {
-                logger.error("generation", "[chatId=" + chatId + "] 最终更新编辑失败: " + err.message);
+                console.log("[TG SEND ERROR] editMessageText final_update chatId=" + chatId + " error=" + err.message);
+                    logger.error("generation", "[chatId=" + chatId + "] 最终更新编辑失败: " + err.message);
+                    // 回退到 sendMessage
+                    console.log("[TG SEND START] editMessageText fallback to sendMessage chatId=" + chatId);
+                    try {
+                        const fallbackSent = await this.bot.sendMessage(chatId, data.text);
+                        console.log("[TG SEND SUCCESS] editMessageText fallback message_id=" + fallbackSent.message_id + " chatId=" + chatId);
+                        runtime.completeGeneration(chatId);
+                    } catch (sendErr) {
+                        console.log("[TG SEND ERROR] editMessageText fallback chatId=" + chatId + " error=" + sendErr.message);
+                    }
             }
             runtime.completeGeneration(chatId);
         } else {
             if (data.text) {
                 try {
+                    console.log("[TG SEND START] final_update_fallback chatId=" + chatId);
                     const sent = await this.bot.sendMessage(chatId, data.text);
                     if (!entry) {
                         runtime.startGeneration(chatId);
@@ -193,8 +219,10 @@ class GenerationService {
                     runtime.startStreaming(chatId, sent.message_id);
                     runtime.updateStream(chatId, data.text);
                     runtime.completeGeneration(chatId);
+                    console.log("[TG SEND SUCCESS] final_update_fallback message_id=" + sent.message_id + " chatId=" + chatId);
                     logger.info("generation", "[chatId=" + chatId + "] 非流式回复已发送");
                 } catch (err) {
+                    console.log("[TG SEND ERROR] final_update_fallback chatId=" + chatId + " error=" + err.message);
                     logger.error("generation", "[chatId=" + chatId + "] 发送非流式回复失败: " + err.message);
                 }
             }
@@ -204,6 +232,7 @@ class GenerationService {
     // ==================== ai_reply ====================
 
     async handleAiReply(data) {
+        console.log("[TG RECV] handleAiReply chatId=" + data.chatId + " text.length=" + (data.text ? data.text.length : 0));
         const chatId = data.chatId;
 
         this._clearFinalWaitTimer(chatId);
@@ -216,13 +245,16 @@ class GenerationService {
 
         if (data.text) {
             try {
+                console.log("[TG SEND START] ai_reply chatId=" + chatId);
                 const sent = await this.bot.sendMessage(chatId, data.text);
+                console.log("[TG SEND SUCCESS] ai_reply message_id=" + sent.message_id + " chatId=" + chatId);
                 runtime.startGeneration(chatId);
                 runtime.startStreaming(chatId, sent.message_id);
                 runtime.updateStream(chatId, data.text);
                 runtime.completeGeneration(chatId);
                 logger.info("generation", "[chatId=" + chatId + "] ai_reply 已发送");
             } catch (err) {
+                console.log("[TG SEND ERROR] ai_reply chatId=" + chatId + " error=" + err.message);
                 logger.error("generation", "[chatId=" + chatId + "] 发送 ai_reply 失败: " + err.message);
             }
         }

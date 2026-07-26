@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const config = require('../config/config');
 const constants = require('../config/constants');
 const generationService = require('../services/generation');
+const sessionStore = require("../state/session");
 const stService = require('../services/sillytavern');
 
 // Bot 原生命令菜单
@@ -108,6 +109,7 @@ class BotService {
     }
 
     async handleSTMessage(data) {
+        console.log('[TG RECV] type=' + data.type + ' chatId=' + data.chatId + ' text.length=' + (data.text ? data.text.length : 0));
         try {
             if (data.type === 'stream_chunk' && data.chatId) {
                 await generationService.handleStreamChunk(data);
@@ -121,6 +123,19 @@ class BotService {
                 await generationService.handleAiReply(data);
             } else if (data.type === 'typing_action' && data.chatId) {
                 generationService.handleTypingAction(data);
+            } else if (data.type === 'chat_info' && data.data) {
+                const chatId = data.chatId;  // 可能是 undefined (全局事件广播)
+                const info = data.data;
+                logger.info('chat_info', 'ChatID=' + (chatId || 'broadcast') + ' character=' + info.characterName + ' chat=' + info.chatName);
+                if (chatId) {
+                    if (info.chatName) {
+                        sessionStore.setCurrentChatName(chatId, info.chatName);
+                    }
+                    if (info.characterName) {
+                        sessionStore.setCurrentCharacter(chatId, info.characterName);
+                    }
+
+                }
             } else if (data.type === 'command_executed') {
                 await generationService.handleCommandExecuted(data);
             }

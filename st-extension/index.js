@@ -28,6 +28,50 @@ let ws = null; // WebSocket实例
 let lastProcessedChatId = null; // 用于存储最后处理过的Telegram chatId
 // 添加一个全局变量来跟踪当前是否处于流式模式
 let isStreamingMode = false;
+let _greetingLock = false;
+
+// 角色切换后直接读取 chat[0] 发送 first_mes，消除事件竞争
+function sendGreetingAfterSwitch(chatId) {
+    if (_greetingLock) { console.log('[TG Bridge Trace] sendGreeting locked, skipping'); return; }
+    if (!ws || ws.readyState !== WebSocket.OPEN || !chatId) { console.log('[TG Bridge Trace] sendGreeting ws not ready'); return; }
+    _greetingLock = true;
+    console.log('[TG Bridge Trace] sendGreetingAfterSwitch scheduled for chatId=' + chatId);
+    setTimeout(() => {
+        try {
+            _greetingLock = false;
+            const context = SillyTavern.getContext();
+            const char = context.characters[context.characterId];
+            console.log('[TG Bridge Trace] sendGreeting: characterId=' + context.characterId + ' char=' + (char ? char.name : 'null') + ' chat.length=' + context.chat.length);
+            const altGreetings = char?.data?.alternate_greetings;
+            // 检查是否有 alternate greetings
+            if (Array.isArray(altGreetings) && altGreetings.length > 0) {
+                console.log('[TG Bridge Trace] alternate greetings count=' + altGreetings.length);
+                let text = '已切换角色: ' + (char.name || '未知') + '\n\n请选择开场：\n\n1. 默认开场';
+                for (var gi = 0; gi < altGreetings.length; gi++) {
+                    var gText = typeof altGreetings[gi] === 'string' ? altGreetings[gi] : (altGreetings[gi].text || '');
+                    var preview = gText.substring(0, 50).replace(/\n/g, ' ');
+                    text += '\n' + (gi + 2) + '. ' + preview;
+                }
+                text += '\n\n使用 /greet 数字 选择开场';
+                ws.send(JSON.stringify({ type: 'ai_reply', chatId: chatId, text: text }));
+                console.log('[TG Bridge Trace] sendGreeting: greeting list sent');
+            } else {
+                // 没有 alternate greetings，发送默认 first_mes
+                const msg = context.chat[0];
+                console.log('[TG Bridge Trace] sendGreeting: chat[0] exists=' + (!!msg) + ' is_user=' + (msg ? msg.is_user : 'N/A') + ' text=' + (msg ? msg.mes?.substring(0, 80) : 'N/A'));
+                if (msg && !msg.is_user && !msg.is_system && msg.mes) {
+                    ws.send(JSON.stringify({ type: 'ai_reply', chatId: chatId, text: msg.mes }));
+                    console.log('[TG Bridge Trace] sendGreeting: ai_reply sent');
+                } else {
+                    console.log('[TG Bridge Trace] sendGreeting: no valid greeting to send');
+                }
+            }
+        } catch (e) {
+            console.error('[TG Bridge Trace] sendGreeting error:', e);
+            _greetingLock = false;
+        }
+    }, 300);
+}
 // --- 工具函数 ---
 function getSettings() {
     if (!extensionSettings[MODULE_NAME]) {
@@ -51,7 +95,7 @@ function reloadPage() {
 // 连接到WebSocket服务器
 function connect() {
     if (ws && ws.readyState === WebSocket.OPEN) {
-        console.log('[Telegram Bridge] 已连接');
+            console.log('[TG Bridge] handleFinalMessage: entering send phase chatId=' + chatId + ' isStreamingMode=' + isStreamingMode + ' finalText.length=' + finalText.length);
         return;
     }
     const settings = getSettings();
@@ -63,7 +107,7 @@ function connect() {
     console.log(`[Telegram Bridge] 正在连接 ${settings.bridgeUrl}...`);
     ws = new WebSocket(settings.bridgeUrl);
     ws.onopen = () => {
-        console.log('[Telegram Bridge] 连接成功！');
+        console.log('[TG Bridge] entering send phase: 连接成功！');
         updateStatus('已连接', 'green');
     };
     ws.onmessage = async (event) => {
@@ -72,7 +116,7 @@ function connect() {
             data = JSON.parse(event.data);
             // --- 用户消息处理 ---
             if (data.type === 'user_message') {
-                console.log('[Telegram Bridge] 收到用户消息。', data);
+                console.log('[TG Bridge] entering send phase: 收到用户消息。', data);
                 // 存储当前处理的chatId
                 lastProcessedChatId = data.chatId;
                 // 默认情况下，假设不是流式模式
@@ -127,7 +171,7 @@ function connect() {
                     console.error("[Telegram Bridge] Generate() 错误:", error);
                     // a. 从SillyTavern聊天记录中删除导致错误的用户消息
                     await deleteLastMessage();
-                    console.log('[Telegram Bridge] 已删除导致错误的用户消息。');
+                    console.log('[TG Bridge] entering send phase: 已删除导致错误的用户消息。');
                     // b. 准备并发送错误信息到服务端
                     const errorMessage = `抱歉，AI生成回复时遇到错误。\n您的上一条消息已被撤回，请重试或发送不同内容。\n\n错误详情: ${error.message || '未知错误'}`;
                     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -145,21 +189,30 @@ function connect() {
             }
             // --- 统一 request 分发 ---
             if (data.type === 'request') {
-                console.log('[Telegram Bridge] 收到请求', data.action, data);
+                console.log('[TG Bridge] entering send phase: 收到请求', data.action, data);
                 const context = SillyTavern.getContext();
                 let responseData = {};
 
                 switch (data.action) {
                     case 'character_info': {
-                        const char = context.characters.find(c => c.name === data.params.name);
-                        if (char) {
+                        var foundChar = context.characters[context.characterId];
+                        if (!foundChar) {
+                            var searchName = data.params && data.params.name;
+                            console.log('[TG Bridge Trace] character_info: fallback to name search=' + searchName);
+                            foundChar = searchName ? context.characters.find(c => c.name === searchName) : null;
+                        }
+                        console.log('[TG Bridge Trace] character_info: char=' + (foundChar ? foundChar.name : 'null') + ' characterId=' + context.characterId);
+                        if (foundChar) {
                             responseData = {
-                                name: char.name,
-                                description: char.description || '',
-                                personality: char.personality || '',
-                                scenario: char.scenario || '',
-                                first_mes: char.first_mes || '',
+                                name: foundChar.name,
+                                description: foundChar.description || '',
+                                personality: foundChar.personality || '',
+                                scenario: foundChar.scenario || '',
+                                first_mes: foundChar.first_mes || '',
                             };
+                            console.log('[TG Bridge Trace] character_info: responseKeys=' + Object.keys(responseData).join(','));
+                        } else {
+                            console.log('[TG Bridge Trace] character_info: char NOT found, responseData={}');
                         }
                         break;
                     }
@@ -179,7 +232,10 @@ function connect() {
                         break;
                     }
                     case 'alternate_greetings': {
-                        const char = context.characters.find(c => c.name === data.params.name);
+                        var char = context.characters[context.characterId];
+                        if (!char && data.params && data.params.name) {
+                            char = context.characters.find(c => c.name === data.params.name);
+                        }
                         if (char && char.alternate_greetings) {
                             responseData = {
                                 greetings: char.alternate_greetings.map((g, i) => ({
@@ -194,9 +250,20 @@ function connect() {
                                 greetings: char.data?.alternate_greetings
                                     ? char.data.alternate_greetings.map((g, i) => ({
                                         id: i,
+                                        text: typeof g === 'string' ? g : g.text || '',
+                                        preview: (typeof g === 'string' ? g : g.text || '').substring(0, 80),
+                                        selected: i === (char.data.selected_greeting || 0),
+                                    }))
+                                    : [{ id: 0, text: char.first_mes || '', preview: (char.first_mes || '').substring(0, 80), selected: true }],
+                            };
+                        }
+                        break;
                     }
                     case 'character_card_raw': {
-                        const char = context.characters.find(c => c.name === data.params.name);
+                        var char = context.characters[context.characterId];
+                        if (!char && data.params && data.params.name) {
+                            char = context.characters.find(c => c.name === data.params.name);
+                        }
                         if (char) {
                             // 深拷贝字符对象，避免返回活引用
                             const raw = {};
@@ -222,6 +289,7 @@ function connect() {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     // 判断 success: responseData 有任何非空字段即成功
                     const hasData = Object.values(responseData).some(v => v !== undefined && v !== null && v !== '');
+                    console.log('[TG Bridge Trace] sending response: action=' + data.action + ' requestId=' + data.requestId + ' hasData=' + hasData + ' wsOpen=' + ws.readyState);
                     ws.send(JSON.stringify({
                         type: 'response',
                         requestId: data.requestId,
@@ -231,22 +299,26 @@ function connect() {
                         data: responseData,
                         error: !hasData ? '未找到数据' : undefined,
                     }));
+                    console.log('[TG Bridge Trace] response sent successfully');
+                } else {
+                    console.log('[TG Bridge Trace] response NOT sent: ws=' + (!!ws) + ' readyState=' + (ws ? ws.readyState : 'N/A'));
                 }
                 return;
             }
 
             // --- 系统命令处理 ---
             if (data.type === 'system_command') {
-                console.log('[Telegram Bridge] 收到系统命令', data);
+                console.log('[TG Bridge] entering send phase: 收到系统命令', data);
                 if (data.command === 'reload_ui_only') {
-                    console.log('[Telegram Bridge] 正在刷新UI...');
+                    console.log('[TG Bridge] entering send phase: 正在刷新UI...');
                     setTimeout(reloadPage, 500);
                 }
                 return;
             }
             // --- 执行命令处理 ---
             if (data.type === 'execute_command') {
-                console.log('[Telegram Bridge] 执行命令', data);
+                console.log('[TG Bridge] entering send phase: 执行命令', data);
+                console.log('[SWITCH DEBUG] command=' + data.command + ' args=' + JSON.stringify(data.args) + ' chatId=' + data.chatId);
                 // 显示“输入中”状态
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ type: 'typing_action', chatId: data.chatId }));
@@ -261,18 +333,8 @@ function connect() {
                             await doNewChat({ deleteCurrentChat: false });
                             replyText = '新的聊天已经开始。';
                             commandSuccess = true;
-                            // 注册一次性监听 CHARACTER_MESSAGE_RENDERED，等待 first_mes 渲染完成
-                            var tgChatId = data.chatId;
-                            var messageHandler = function(eventChatId, eventType) {
-                                if (eventType === 'first_message') {
-                                    eventSource.removeListener(event_types.CHARACTER_MESSAGE_RENDERED, messageHandler);
-                                    handleFinalMessage(eventChatId + 1, tgChatId);
-                                }
-                            };
-                            eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, messageHandler);
-                            setTimeout(function() {
-                                eventSource.removeListener(event_types.CHARACTER_MESSAGE_RENDERED, messageHandler);
-                            }, 5000);
+                            sendGreetingAfterSwitch(data.chatId);
+                                    console.log('[SWITCH DEBUG] sendGreetingAfterSwitch called chatId=' + data.chatId + ' replyText=' + replyText);
                             break;
                         case 'listchars': {
                             const characters = context.characters.slice(1);
@@ -293,29 +355,33 @@ function connect() {
                                 replyText = '请提供角色名称或序号。用法: /switchchar <角色名称> 或 /switchchar_数字';
                                 break;
                             }
-                            const targetName = data.args.join(' ');
+                            const switchInput = data.args.join(' ');
                             const characters = context.characters;
-                            const targetChar = characters.find(c => c.name === targetName);
-                            if (targetChar) {
-                                const charIndex = characters.indexOf(targetChar);
-                                await selectCharacterById(charIndex);
-                                  await doNewChat({ deleteCurrentChat: false });
-                                replyText = `已成功切换到角色 "${targetName}"。`;
-                                commandSuccess = true;
-                                  // 注册一次性监听 CHARACTER_MESSAGE_RENDERED，等待 first_mes 渲染完成
-                                  var tgChatId = data.chatId;
-                                  var messageHandler = function(eventChatId, eventType) {
-                                      if (eventType === 'first_message') {
-                                          eventSource.removeListener(event_types.CHARACTER_MESSAGE_RENDERED, messageHandler);
-                                          handleFinalMessage(eventChatId + 1, tgChatId);
-                                      }
-                                  };
-                                  eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, messageHandler);
-                                  setTimeout(function() {
-                                      eventSource.removeListener(event_types.CHARACTER_MESSAGE_RENDERED, messageHandler);
-                                  }, 5000);
+                            let targetChar = null;
+                            let charIndex = -1;
+                            // 检查是否为数字序号 /switch 3 => /switchchar_3
+                            if (/^\d+$/.test(switchInput.trim())) {
+                                const idx = parseInt(switchInput.trim(), 10);
+                                const userChars = characters.slice(1); // 跳过系统角色
+                                if (idx >= 1 && idx <= userChars.length) {
+                                    targetChar = userChars[idx - 1];
+                                    charIndex = characters.indexOf(targetChar);
+                                }
+                                console.log('[TG Bridge Trace] switch resolver: input=' + switchInput + ' mode=index resolved=' + (targetChar ? targetChar.name : 'null') + ' charIndex=' + charIndex);
                             } else {
-                                replyText = `角色 "${targetName}" 未找到。`;
+                                // 按名称查找
+                                targetChar = characters.find(c => c.name === switchInput);
+                                if (targetChar) charIndex = characters.indexOf(targetChar);
+                                console.log('[TG Bridge Trace] switch resolver: input=' + switchInput + ' mode=name resolved=' + (targetChar ? targetChar.name : 'null') + ' charIndex=' + charIndex);
+                            }
+                            if (targetChar) {
+                                await selectCharacterById(charIndex);
+                                await doNewChat({ deleteCurrentChat: false });
+                                replyText = `已成功切换到角色 "${targetChar.name}"。`;
+                                commandSuccess = true;
+                                sendGreetingAfterSwitch(data.chatId);
+                            } else {
+                                replyText = `角色 "${switchInput}" 未找到。`;
                             }
                             break;
                         }
@@ -354,6 +420,55 @@ function connect() {
                             }
                             break;
                         }
+
+                        case 'greet': {
+                            const context = SillyTavern.getContext();
+                            const char = context.characters[context.characterId];
+                            if (!char) {
+                                replyText = '请先选择一个角色。';
+                                break;
+                            }
+                            if (!data.args || data.args.length === 0) {
+                                replyText = '用法: /greet <数字>。使用 /listchars 查看可用角色和开场白。';
+                                break;
+                            }
+                            var greetIdx = parseInt(data.args[0], 10);
+                            if (isNaN(greetIdx) || greetIdx < 1) {
+                                replyText = '请提供有效的开场序号 (正整数)。';
+                                break;
+                            }
+                            var altGreetings = char.data?.alternate_greetings;
+                            var altCount = Array.isArray(altGreetings) ? altGreetings.length : 0;
+                            // greetIdx 1 = first_mes, 2+ = alternate_greetings[greetIdx-2]
+                            var maxAlt = 1 + altCount;
+                            if (greetIdx > maxAlt) {
+                                replyText = '无效的开场序号: ' + greetIdx + '。可选范围: 1-' + maxAlt + '。';
+                                break;
+                            }
+                            console.log('[TG Bridge] selected greeting index=' + greetIdx);
+                            // 获取选中的开场文本
+                            var selectedText = '';
+                            if (greetIdx === 1) {
+                                selectedText = char.first_mes || '';
+                            } else {
+                                var altG = altGreetings[greetIdx - 2];
+                                selectedText = typeof altG === 'string' ? altG : (altG.text || '');
+                            }
+                            if (!selectedText) {
+                                replyText = '开场文本为空。';
+                                break;
+                            }
+                            // 创建新聊天并发送选中的开场
+                            await doNewChat({ deleteCurrentChat: false });
+                            replyText = '已选择开场 #' + greetIdx + '。';
+                            commandSuccess = true;
+                            // 直接发送选中的开场文本（不依赖 chat[0]）
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'ai_reply', chatId: data.chatId, text: selectedText }));
+                                console.log('[TG Bridge] selected greeting sent: ' + selectedText.substring(0, 50));
+                            }
+                            break;
+                        }
                         default: {
                             // 处理特殊格式的命令，如 switchchar_1, switchchat_2 等
                             const charMatch = data.command.match(/^switchchar_(\d+)$/);
@@ -367,18 +482,7 @@ function connect() {
                                     await doNewChat({ deleteCurrentChat: false });
                                     replyText = `已切换到角色 "${targetChar.name}"。`;
                                     commandSuccess = true;
-                                    // 注册一次性监听 CHARACTER_MESSAGE_RENDERED，等待 first_mes 渲染完成
-                                    var tgChatId = data.chatId;
-                                    var messageHandler = function(eventChatId, eventType) {
-                                        if (eventType === 'first_message') {
-                                            eventSource.removeListener(event_types.CHARACTER_MESSAGE_RENDERED, messageHandler);
-                                            handleFinalMessage(eventChatId + 1, tgChatId);
-                                        }
-                                    };
-                                    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, messageHandler);
-                                    setTimeout(function() {
-                                        eventSource.removeListener(event_types.CHARACTER_MESSAGE_RENDERED, messageHandler);
-                                    }, 5000);
+                                    sendGreetingAfterSwitch(data.chatId);
                                 } else {
                                     replyText = `无效的角色序号: ${index + 1}。请使用 /listchars 查看可用角色。`;
                                 }
@@ -418,6 +522,7 @@ function connect() {
                 // 发送命令执行结果
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     // 发送命令执行结果到Telegram
+                    console.log('[SWITCH DEBUG] sending ai_reply replyText length=' + (replyText ? replyText.length : 0) + ' first80=' + (replyText ? replyText.substring(0, 80) : 'N/A'));
                     ws.send(JSON.stringify({ type: 'ai_reply', chatId: data.chatId, text: replyText }));
                     // 发送命令执行状态反馈到服务器
                     ws.send(JSON.stringify({
@@ -437,7 +542,7 @@ function connect() {
         }
     };
     ws.onclose = () => {
-        console.log('[Telegram Bridge] 连接已关闭。');
+        console.log('[TG Bridge] entering send phase: 连接已关闭。');
         updateStatus('连接已断开', 'red');
         ws = null;
     };
@@ -454,11 +559,11 @@ function disconnect() {
 }
 // 扩展加载时执行的函数
 jQuery(async () => {
-    console.log('[Telegram Bridge] 正在尝试加载设置 UI...');
+    console.log('[TG Bridge] entering send phase: 正在尝试加载设置 UI...');
     try {
         const settingsHtml = await $.get(`/scripts/extensions/third-party/${MODULE_NAME}/settings.html`);
         $('#extensions_settings').append(settingsHtml);
-        console.log('[Telegram Bridge] 设置 UI 应该已经被添加。');
+        console.log('[TG Bridge] entering send phase: 设置 UI 应该已经被添加。');
         const settings = getSettings();
         $('#telegram_bridge_url').val(settings.bridgeUrl);
         $('#telegram_auto_connect').prop('checked', settings.autoConnect);
@@ -478,65 +583,138 @@ jQuery(async () => {
         $('#telegram_connect_button').on('click', connect);
         $('#telegram_disconnect_button').on('click', disconnect);
         if (settings.autoConnect) {
-            console.log('[Telegram Bridge] 自动连接已启用，正在连接...');
+            console.log('[TG Bridge] entering send phase: 自动连接已启用，正在连接...');
             connect();
         }
     } catch (error) {
         console.error('[Telegram Bridge] 加载设置 HTML 失败。', error);
     }
-    console.log('[Telegram Bridge] 扩展已加载。');
+    console.log('[TG Bridge] entering send phase: 扩展已加载。');
+});
+// ===== 全局聊天状态同步 =====
+eventSource.on(event_types.CHAT_CHANGED, function(args) {
+    console.log("[TG CHAT EVENT] CHAT_CHANGED args:", args);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+        const context = SillyTavern.getContext();
+        var charName = context.characters && context.characters[context.characterId] ? context.characters[context.characterId].name : (context.name2 || "未知");
+        var chatFileName = typeof args === 'string' ? args : (context.chat && context.chat.file_name ? context.chat.file_name : "");
+        ws.send(JSON.stringify({
+            type: "chat_info",
+            data: {
+                characterName: charName,
+                characterId: context.characterId,
+                chatName: typeof args === 'string' ? args : (context.chat && context.chat.name ? context.chat.name : ""),
+                fileName: chatFileName,
+            }
+        }));
+    } catch(e) {
+        console.error("[TG CHAT EVENT] CHAT_CHANGED error:", e);
+    }
+});
+
+eventSource.on(event_types.CHAT_LOADED, function(args) {
+    console.log("[TG CHAT EVENT] CHAT_LOADED args:", args);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+        const context = SillyTavern.getContext();
+        var charName = context.characters && context.characters[context.characterId] ? context.characters[context.characterId].name : (context.name2 || "未知");
+        ws.send(JSON.stringify({
+            type: "chat_info",
+            data: {
+                characterName: charName,
+                characterId: context.characterId,
+                chatName: context.chat && context.chat.name ? context.chat.name : (context.chat && context.chat.file_name ? context.chat.file_name : ""),
+                fileName: context.chat && context.chat.file_name ? context.chat.file_name : "",
+            }
+        }));
+    } catch(e) {
+        console.error("[TG CHAT EVENT] CHAT_LOADED error:", e);
+    }
 });
 // 终态消息处理器，由 user_message handler 中 once 注册
 function handleFinalMessage(lastMessageIdInChatArray, chatId) {
+    console.log('[TG Bridge Trace] handleFinalMessage entered, lastMessageIdInChatArray=' + lastMessageIdInChatArray + ', chatId=' + chatId);
     // 确保WebSocket已连接，并且我们有一个有效的chatId来发送更新
     if (!ws || ws.readyState !== WebSocket.OPEN || !chatId) {
+        console.log('[TG Bridge Trace] handleFinalMessage return: ws=' + (!!ws) + ' readyState=' + (ws ? ws.readyState : 'N/A') + ' chatId=' + chatId);
         return;
     }
     const lastMessageIndex = lastMessageIdInChatArray - 1;
-    if (lastMessageIndex < 0) return;
+    if (lastMessageIndex < 0) { console.log('[TG Bridge Trace] handleFinalMessage return: lastMessageIndex < 0'); return; }
     // 延迟以确保DOM更新完成
     setTimeout(() => {
+        console.log('[TG Bridge Trace] handleFinalMessage setTimeout fired, lastMessageIndex=' + lastMessageIndex);
         // 直接调用全局的 SillyTavern.getContext()
         const context = SillyTavern.getContext();
         const lastMessage = context.chat[lastMessageIndex];
+        console.log('[TG Bridge Trace] chat[' + lastMessageIndex + '] exists=' + (!!lastMessage) + ' is_user=' + (lastMessage ? lastMessage.is_user : 'N/A') + ' is_system=' + (lastMessage ? lastMessage.is_system : 'N/A') + ' mes=' + (lastMessage ? lastMessage.mes?.substring(0, 50) : 'N/A'));
         // 确认这是我们刚刚通过Telegram触发的AI回复
-        if (lastMessage && !lastMessage.is_user && !lastMessage.is_system) {
-            const messageElement = $(`#chat .mes[mesid="${lastMessageIndex}"]`);
-            if (messageElement.length > 0) {
-                // 获取消息文本元素
-                const messageTextElement = messageElement.find('.mes_text');
-                // 获取HTML内容并替换<br>和</p><p>为换行符
-                let renderedText = messageTextElement.html()
-                    .replace(/<br\s*\/?>/gi, '\n')
-                    .replace(/<\/p>\s*<p>/gi, '\n\n')
-                // .replace(/<[^>]*>/g, ''); // 移除所有其他HTML标签
-                // 解码HTML实体
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = renderedText;
-                renderedText = tempDiv.textContent;
-                console.log(`[Telegram Bridge] 最终渲染文本，发送到 chatId: ${chatId}`);
-                // 判断是流式还是非流式响应
-                if (isStreamingMode) {
-                    // 流式响应 - 发送final_message_update
+                if (lastMessage && !lastMessage.is_user && !lastMessage.is_system) {
+            // Primary: read from ST chat array (most reliable)
+            let finalText = lastMessage.mes || '';
+            console.log('[TG Bridge] FINAL AI TEXT from chat[' + lastMessageIndex + ']: "' + finalText.substring(0, 80) + '"');
+
+            // Fallback: if chat data is empty, try DOM
+            if (!finalText.trim()) {
+                console.log('[TG Bridge Trace] handleFinalMessage: chat.mes empty, trying DOM fallback');
+                var messageElement = document.querySelector('#chat .mes[mesid="' + lastMessageIndex + '"]');
+                console.log('[TG Bridge Trace] mes element exists=' + (!!messageElement));
+                if (messageElement) {
+                    var messageTextElement = messageElement.querySelector('.mes_text');
+                    if (messageTextElement) {
+                        var renderedText = messageTextElement.innerHTML || '';
+                        renderedText = renderedText
+                            .replace(/<br\s*\/?>/gi, '\n')
+                            .replace(/<\/p>\s*<p>/gi, '\n\n');
+                        var tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = renderedText;
+                        finalText = tempDiv.textContent || '';
+                        console.log('[TG Bridge Trace] DOM fallback text="' + finalText.substring(0, 80) + '"');
+                    }
+                }
+            }
+
+            if (!finalText.trim()) {
+                console.log('[TG Bridge Trace] handleFinalMessage: final text is empty, aborting');
+                return;
+            }
+
+            console.log('[TG Bridge] FINAL AI TEXT:', finalText);
+            console.log('[TG Bridge] entering send phase: \u6700\u7ec8\u6e32\u67d3\u6587\u672c\uff0c\u53d1\u9001\u5230 chatId=' + chatId);
+
+            if (isStreamingMode) {
+                console.log('[TG SEND DEBUG] final_message_update sending, chatId=' + chatId + ' text.length=' + finalText.length);
+                try {
                     ws.send(JSON.stringify({
                         type: 'final_message_update',
                         chatId: chatId,
-                        text: renderedText,
+                        text: finalText,
                     }));
-                    // 重置流式模式标志
-                    isStreamingMode = false;
-                } else {
-                    // 非流式响应 - 直接发送ai_reply
+                    console.log('[TG SEND DEBUG] final_message_update sent successfully');
+                } catch (e) {
+                    console.log('[TG SEND ERROR] final_message_update ws.send exception: ' + e.message);
+                }
+                isStreamingMode = false;
+            } else {
+                console.log('[TG SEND DEBUG] ai_reply sending, chatId=' + chatId + ' text.length=' + finalText.length);
+                try {
                     ws.send(JSON.stringify({
                         type: 'ai_reply',
                         chatId: chatId,
-                        text: renderedText,
+                        text: finalText,
                     }));
+                    console.log('[TG SEND SUCCESS] ai_reply sent, chatId=' + chatId);
+                } catch (e) {
+                    console.log('[TG SEND ERROR] ai_reply ws.send exception: ' + e.message);
                 }
             }
         }
     }, 100);
 }
 // 全局事件监听器，用于最终消息更新
+
+
+
 
 

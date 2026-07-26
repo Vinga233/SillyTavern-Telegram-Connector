@@ -14,6 +14,9 @@ module.exports = function setupCommands(bot) {
         const parts = fullCommand.split(/\s+/);
         const command = parts[0].toLowerCase();
         const args = parts.slice(1);
+        const userId = msg.from?.id;
+        // 确保 session 存在（slash 命令不会触发 messages.js 的 getOrCreate）
+        sessionStore.getOrCreate(chatId, userId);
 
         // 系统命令
         if (['reload', 'restart', 'exit', 'ping'].includes(command)) {
@@ -109,23 +112,41 @@ module.exports = function setupCommands(bot) {
                 break;
 
             case 'switch':
-                dt.log('commands', 'switch_received', chatId, { args });
-                if (args.length === 0) {
-                    await bot.sendMessage(chatId, '请指定角色名称，用法: /switch <名称>').catch(() => {});
-                } else {
-                    const targetName = args.join(' ');
-                    try {
-                        const charService = require('../services/character');
-                        await charService.switchCharacter(chatId, targetName);
-                    dt.log('commands', 'switch_before_execute', chatId, { targetName });
-                        sessionStore.setCurrentCharacter(chatId, targetName);
-                    dt.log('commands', 'switch_session_update', chatId, { targetName });
-                        await bot.sendMessage(chatId, `✅ 已切换到角色: ${targetName}`).catch(() => {});
-                    } catch (err) {
-                        await bot.sendMessage(chatId, `⚠️ 切换失败: ${err.message}`).catch(() => {});
-                    }
-                }
-                break;
+                            dt.log('commands', 'switch_received', chatId, { args });
+                            if (args.length === 0) {
+                                await bot.sendMessage(chatId, '请指定角色名称，用法: /switch <名称> 或 /switch <数字>').catch(() => {});
+                            } else {
+                                const switchInput = args.join(' ');
+                                if (/^\d+$/.test(switchInput.trim())) {
+                                    const switchIdx = switchInput.trim();
+                                    dt.log('commands', 'switch_numeric', chatId, { index: switchIdx });
+                                    stService.executeCommand('switchchar_' + switchIdx, null, chatId);
+                                // 异步查询角色名并保存 session
+                                stService.request('character_info', null, chatId).then(res => {
+                                    console.log("[CHAR INFO DEBUG SWITCH] " + JSON.stringify(res));
+                                    if (res && res.data && res.data.name) {
+                                        console.log("[SESSION SAVE DEBUG SWITCH] chatId=" + chatId + " charName=" + res.data.name);
+                                        sessionStore.setCurrentCharacter(chatId, res.data.name);
+                                    } else {
+                                        console.log("[CHAR INFO DEBUG SWITCH] name not found, res.data=" + JSON.stringify(res && res.data ? res.data : "null"));
+                                    }
+                                }).catch(err => {
+                                    console.log("[CHAR INFO DEBUG SWITCH] request failed: " + err.message);
+                                });
+                                } else {
+                                    try {
+                                        const charService = require('../services/character');
+                                        await charService.switchCharacter(chatId, switchInput);
+                                        dt.log('commands', 'switch_before_execute', chatId, { targetName: switchInput });
+                                        sessionStore.setCurrentCharacter(chatId, switchInput);
+                                        dt.log('commands', 'switch_session_update', chatId, { targetName: switchInput });
+                                        await bot.sendMessage(chatId, '\u2705 \u5df2\u5207\u6362\u5230\u89d2\u8272: ' + switchInput).catch(() => {});
+                                    } catch (err) {
+                                        await bot.sendMessage(chatId, '\u26a0\ufe0f \u5207\u6362\u5931\u8d25: ' + err.message).catch(() => {});
+                                    }
+                                }
+                            }
+                            break;
 
             case 'context':
                 try {
@@ -321,11 +342,27 @@ module.exports = function setupCommands(bot) {
                 }
                 break;
 
+            case 'greet':
+                stService.executeCommand('greet', args, chatId);
+                await bot.sendMessage(chatId, '\uD83C\uDFAD \u6B63\u5728\u9009\u62E9\u5F00\u573A\u767D...').catch(() => {});
+                break;
             default:
                 const charMatch = command.match(/^switchchar_(\d+)$/);
                     dt.log('commands', 'switchchar_N_received', chatId, { command });
                 if (charMatch) {
                     stService.executeCommand(command, null, chatId);
+                    // 异步查询角色名并保存 session
+                    stService.request("character_info", null, chatId).then(res => {
+                        console.log("[CHAR INFO DEBUG] " + JSON.stringify(res));
+                        if (res && res.data && res.data.name) {
+                            console.log("[SESSION SAVE DEBUG] chatId=" + chatId + " charName=" + res.data.name);
+                            sessionStore.setCurrentCharacter(chatId, res.data.name);
+                        } else {
+                            console.log("[CHAR INFO DEBUG] name not found in response, res.data=" + JSON.stringify(res && res.data ? res.data : "null"));
+                        }
+                    }).catch(err => {
+                        console.log("[CHAR INFO DEBUG] request failed: " + err.message);
+                    });
                     break;
                 }
                 const chatMatch = command.match(/^switchchat_(\d+)$/);
@@ -365,4 +402,6 @@ async function handleSystemCommand(bot, command, chatId) {
     stService.client.commandToExecuteOnClose = { command, chatId };
     stService.send({ type: 'system_command', command: 'reload_ui_only', chatId });
 }
+
+
 

@@ -53,6 +53,7 @@ async function showMain(bot, chatId, messageId) {
 async function showCharacterMenu(bot, chatId, messageId) {
     const session = sessionStore.get(chatId);
     const currentChar = session?.currentCharacter || '未知';
+    console.log("[SESSION MENU DEBUG] chatId=" + chatId + " session.currentCharacter=" + (session?.currentCharacter || "null"));
     dt.log('menu', 'showCharacterMenu', chatId, { sessionChar: session?.currentCharacter, displayChar: currentChar });
 
     const text = [
@@ -69,6 +70,7 @@ async function showCharacterMenu(bot, chatId, messageId) {
             [{ text: "\uD83C\uDFAD 切换开场白", callback_data: "char:greetings:" + currentChar },
              { text: "\uD83D\uDD04 切换角色", callback_data: "char:switch" }],
             [{ text: "\uD83D\uDCDA 角色列表", callback_data: "char:list" }],
+            [{ text: "\uD83D\uDCC1 \u5386\u53F2\u804A\u5929", callback_data: "chats:list" }],
             buildBackButton("menu:main"),
         ],
     };
