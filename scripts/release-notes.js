@@ -15,8 +15,11 @@ function cat(msg) {
   if (l.startsWith('feat') || l.startsWith('add')) return { t:'added', l:'### Added' };
   if (l.startsWith('fix')) return { t:'fixed', l:'### Fixed' };
   if (l.startsWith('docs')) return { t:'docs', l:'### Documentation' };
-  if (l.startsWith('refactor') || l.startsWith('perf')) return { t:'changed', l:'### Changed' };
+  if (l.startsWith('refactor')) return { t:'changed', l:'### Changed' };
+  if (l.startsWith('perf')) return { t:'perf', l:'### Performance' };
   if (l.startsWith('revert') || l.startsWith('remove')) return { t:'removed', l:'### Removed' };
+  if (l.startsWith('test')) return { t:'test', l:'### Testing' };
+  if (l.startsWith('chore')) return { t:'chore', l:'### Chore' };
   return { t:'other', l:'### Other' };
 }
 
@@ -45,7 +48,7 @@ function main() {
   }
   const out = [];
   out.push('## [' + ver + '] - ' + date); out.push('');
-  for (const k of ['added','fixed','changed','removed','docs','other']) {
+  for (const k of ['added','fixed','changed','perf','removed','docs','test','chore','other']) {
     const items = g[k];
     if (!items || !items.length) continue;
     out.push(cat(k + ':').l); out.push('');

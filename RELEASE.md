@@ -70,8 +70,47 @@ git push origin <tag-name>
 | Hotfix | v<major>.<minor>.<patch>+hotfix | v1.8.2+hotfix |
 | Pre-release | v<major>.<minor>.<patch>-rc<N> | v1.9.0-rc1 |
 
+## Commit Convention
+
+All commits should use Conventional Commits prefixes for auto-categorization in release notes:
+
+| Prefix | Category |
+|--------|----------|
+| `feat:` | Added (new feature) |
+| `fix:` | Fixed (bug fix) |
+| `docs:` | Documentation |
+| `refactor:` | Changed (code refactor, no functional change) |
+| `perf:` | Performance (optimization) |
+| `test:` | Testing |
+| `chore:` | Chore (tooling, CI, config) |
+
+Example commits:
+```
+feat: add telegram history chat menu
+fix: prevent duplicate telegram message sending
+docs: update release workflow
+chore: standardize release workflow
+```
+
+## Release Checklist
+
+Before tagging a new release, verify the following:
+
+- [ ] `git status` is clean (no uncommitted changes)
+- [ ] `npm install` completes without errors
+- [ ] Connector server starts without errors
+- [ ] SillyTavern extension loads correctly (check browser console)
+- [ ] WebSocket connection established
+- [ ] Telegram message send/receive works
+- [ ] Streaming output works
+- [ ] Character switch works
+- [ ] History chat works
+- [ ] CHANGELOG.md is updated with new version
+- [ ] Tag is created and pushed to remote
+
 ## Files
 
 - CHANGELOG.md — Full version history (manual + auto-generated)
 - scripts/release-notes.js — Auto-generate changelog section from git log
 - scripts/test-smoke.js — Basic smoke test for verification
+
