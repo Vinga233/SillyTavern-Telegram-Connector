@@ -1,4 +1,4 @@
-﻿// index.js
+// index.js
 // 只解构 getContext() 返回的对象中确实存在的属性
 const {
     extensionSettings,
@@ -387,11 +387,27 @@ function connect() {
                             break;
                         }
                         case 'listchats': {
-                            if (context.characterId === undefined) {
-                                replyText = '请先选择一个角色。';
+                            console.log('[LIST CHATS DEBUG]', {
+                                characterId: context.characterId,
+                                name2: context.name2,
+                                charactersLength: context.characters?.length
+                            });
+                            let targetCharacterId = context.characterId;
+                            // fallback: characterId undefined 时通过 name2 查找
+                            if (targetCharacterId === undefined && context.name2) {
+                                const foundCharacter = context.characters.find(
+                                    c => c && c.name === context.name2
+                                );
+                                if (foundCharacter) {
+                                    targetCharacterId = context.characters.indexOf(foundCharacter);
+                                }
+                            }
+                            console.log('[LIST CHATS TARGET]', targetCharacterId);
+                            if (targetCharacterId === undefined) {
+                                replyText = '请先选择一个角色。\n请先在 SillyTavern 中选择一个角色。';
                                 break;
                             }
-                            const chatFiles = await getPastCharacterChats(context.characterId);
+                            const chatFiles = await getPastCharacterChats(targetCharacterId);
                             if (chatFiles.length > 0) {
                                 replyText = '当前角色的聊天记录：\n\n';
                                 chatFiles.forEach((chat, index) => {
